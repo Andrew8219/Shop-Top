@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>
+    {{ offer.short_name or ("Товар #" ~ offer.product_id) }}
+</h1>
+
+<p>
+    <strong>Компания:</strong>
+    {{ offer.company.name if offer.company else "Без компании" }}<br>
+    <strong>Категория:</strong>
+    {% if offer.category %}
+        {{ offer.category.name }}
+    {% else %}
+        —
+    {% endif %}
+</p>
+
+{% if grouped_props %}
+    {% for group_name, props_in_group in grouped_props %}
+        <h2>{{ group_name }}</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Характеристика</th>
+                <th>Значение</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for p in props_in_group %}
+                <tr>
+                    <td>
+                        {{ p.property_name.name if p.property_name else ("Свойство #" ~ p.property_name_id) }}
+                    </td>
+                    <td>{{ p.value }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endfor %}
+{% else %}
+    <p>Для данного товара пока нет характеристик.</p>
+{% endif %}
+
+<p style="margin-top: 1rem;">
+    <a href="/" style="text-decoration: none;">&larr; Назад к списку товаров</a>
+</p>
+{% endblock %}

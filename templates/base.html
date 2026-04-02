@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title or "MediaLux Shop" }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+    <nav class="nav-bar">
+        <div class="nav-left">
+            <a href="/">Магазин</a> |
+            <a href="/admin/normalization">Нормализация свойств</a>
+        </div>
+        <div class="nav-right">
+            {% if user %}
+                <span class="nav-user">Привет, {{ user.username }}!</span>
+                <form method="post" action="/logout" style="display:inline;">
+                    <button type="submit" class="nav-btn">Выход</button>
+                </form>
+            {% else %}
+                <a href="/login">Вход</a> |
+                <a href="/register">Регистрация</a>
+            {% endif %}
+        </div>
+    </nav>
+</header>
+
+<!-- Оверлей прогресса -->
+<div id="progress-overlay" class="progress-overlay hidden">
+    <div class="progress-box">
+        <button type="button" class="progress-close" aria-label="Закрыть">
+            ✕
+        </button>
+        <div class="progress-title">Выполняется обработка…</div>
+        <div class="progress-bar">
+            <div class="progress-bar-fill"></div>
+        </div>
+        <div class="progress-note">Пожалуйста, не закрывайте страницу.</div>
+    </div>
+</div>
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+<script>
+(function () {
+    function initOverlay() {
+        const overlay = document.getElementById('progress-overlay');
+        if (!overlay) return;
+
+        overlay.classList.add('hidden');
+
+        const closeBtn = overlay.querySelector('.progress-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                overlay.classList.add('hidden');
+                console.log('[progress] overlay closed manually');
+            });
+        }
+
+        const forms = document.querySelectorAll('form[data-show-progress]');
+        forms.forEach(function (form) {
+            form.addEventListener('submit', function () {
+                console.log('[progress] show overlay for form', form.action);
+                overlay.classList.remove('hidden');
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('[progress] DOMContentLoaded');
+        initOverlay();
+    });
+
+    window.addEventListener('pageshow', function () {
+        console.log('[progress] pageshow');
+        const overlay = document.getElementById('progress-overlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+    });
+})();
+</script>
+</body>
+</html>

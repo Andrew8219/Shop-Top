@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Обработка нормализации</h1>
+
+<div class="progress-panel">
+    <p id="progress-text">Подготовка...</p>
+    <div class="progress-bar">
+        <div class="progress-bar-fill" id="progress-bar-fill"></div>
+    </div>
+    <p id="progress-percent">0%</p>
+    <p id="progress-message" class="progress-message"></p>
+</div>
+
+<div id="progress-error" class="progress-error" style="display:none;"></div>
+
+<script>
+(function() {
+    const jobId = "{{ job_id }}";
+    const jobKind = "{{ job_kind }}";
+
+    const fillEl = document.getElementById('progress-bar-fill');
+    const textEl = document.getElementById('progress-text');
+    const percentEl = document.getElementById('progress-percent');
+    const msgEl = document.getElementById('progress-message');
+    const errEl = document.getElementById('progress-error');
+
+    function setProgress(pct, stage, message) {
+        const clamped = Math.max(0, Math.min(100, pct || 0));
+        fillEl.style.width = clamped + "%";
+        percentEl.textContent = clamped + "%";
+
+        let stageText = "Выполняется...";
+        if (stage === "mapping") stageText = "Анализ и кластеризация значений";
+        else if (stage === "apply") stageText = "Применяем нормализацию к БД";
+        else if (stage === "merge") stageText = "Объединяем дубликаты свойств";
+        else if (stage === "diffs") stageText = "Формируем список отличий";
+        else if (stage === "groups") stageText = "Построение групп характеристик";
+        else if (stage === "done") stageText = "Готово";
+
+        textEl.textContent = stageText;
+        msgEl.textContent = message || "";
+    }
+
+    async function pollStatus() {
+        try {
+            const resp = await fetch(`/admin/normalization/job-status/${jobId}`);
+            if (!resp.ok) {
+                throw new Error("HTTP " + resp.status);
+            }
+            const data = await resp.json();
+            if (!data.exists) {
+                throw new Error("Задача не найдена");
+            }
+
+            setProgress(data.progress, data.stage, data.message);
+
+            if (data.status === "done") {
+                if (jobKind === "preview") {
+                    // после предпросмотра — на страницу с diff-ами
+                    window.location.href = `/admin/normalization/preview-result/${jobId}`;
+                } else if (jobKind === "apply" || jobKind === "groups") {
+                    // после применения нормализации или построения групп —
+                    // возвращаемся в админку
+                    window.location.href = `/admin/normalization`;
+                }
+                return;
+            }
+
+            if (data.status === "error") {
+                errEl.style.display = "block";
+                errEl.textContent = data.error || "Ошибка при выполнении задачи.";
+                textEl.textContent = "Ошибка";
+                return;
+            }
+
+            setTimeout(pollStatus, 1000);
+        } catch (e) {
+            errEl.style.display = "block";
+            errEl.textContent = "Ошибка связи с сервером: " + e;
+            textEl.textContent = "Ошибка";
+        }
+    }
+
+    setProgress(0, "init", "Постановка задачи в очередь");
+    setTimeout(pollStatus, 500);
+})();
+</script>
+{% endblock %}

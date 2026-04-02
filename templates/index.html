@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Товары</h1>
+
+<form method="get" action="/search" style="margin: 1rem 0; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+    <input
+        type="text"
+        name="q"
+        value="{{ q or '' }}"
+        placeholder="Поиск: например, 'смартфон 128 гб samsung'"
+        style="min-width: 320px; max-width: 640px; flex: 1 1 320px;"
+    />
+    <button type="submit">Искать</button>
+    {% if q %}
+        <a href="/" style="margin-left: 0.5rem;">Сбросить</a>
+    {% endif %}
+</form>
+
+{% if offers %}
+    <p>
+        {% if q %}
+            Результаты по запросу: <b>{{ q }}</b><br/>
+        {% endif %}
+        Показано {{ from_item }}–{{ to_item }} из {{ total_offers }} товаров.
+    </p>
+
+    <table>
+        <thead>
+        <tr>
+            <th>ID оффера</th>
+            <th>Товар</th>
+            <th>Компания</th>
+            <th>Категория</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for offer in offers %}
+            <tr>
+                <td>{{ offer.offer_id }}</td>
+                <td>
+                    <a href="/product/{{ offer.offer_id }}">
+                        {{ offer.short_name or ("Товар #" ~ offer.product_id) }}
+                    </a>
+                </td>
+                <td>
+                    {{ offer.company.name if offer.company else "Без компании" }}
+                </td>
+                <td>
+                    {% if offer.category %}
+                        {{ offer.category.name }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% if total_pages > 1 %}
+        <div class="pagination" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+            <span class="page-info">
+                Страница {{ page }} из {{ total_pages }}
+            </span>
+            <div class="page-links" style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-left: 0.8rem;">
+                {% if page > 1 %}
+                    <a href="/?page=1">&laquo; В начало</a>
+                    <a href="/?page={{ page - 1 }}">Назад</a>
+                {% endif %}
+
+                {# показываем +-2 страницы вокруг текущей #}
+                {% for p in range(1, total_pages + 1) %}
+                    {% if p == page %}
+                        <span class="page-current" style="font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 4px; background: #2563eb; color: #fff;">
+                            {{ p }}
+                        </span>
+                    {% elif p >= page - 2 and p <= page + 2 %}
+                        <a href="/?page={{ p }}" style="padding: 0.1rem 0.5rem; border-radius: 4px; text-decoration: none;">
+                            {{ p }}
+                        </a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page < total_pages %}
+                    <a href="/?page={{ page + 1 }}">Вперёд</a>
+                    <a href="/?page={{ total_pages }}">В конец &raquo;</a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+{% else %}
+    {% if q %}
+        <p>Ничего не найдено по запросу: <b>{{ q }}</b></p>
+    {% else %}
+        <p>Пока нет товаров для отображения.</p>
+    {% endif %}
+{% endif %}
+{% endblock %}

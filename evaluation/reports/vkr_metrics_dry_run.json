@@ -1,0 +1,230 @@
+{
+  "task5": {
+    "semantic_only": {
+      "Recall@5": 0.6717,
+      "Recall@10": 0.8719,
+      "Recall@20": 0.985,
+      "MRR@5": 0.7567,
+      "MRR@10": 0.7567,
+      "MRR@20": 0.7567,
+      "nDCG@5": 0.7029,
+      "nDCG@10": 0.7796,
+      "nDCG@20": 0.835
+    },
+    "text_only": {
+      "Recall@5": 0.3664,
+      "Recall@10": 0.4592,
+      "Recall@20": 0.521,
+      "MRR@5": 0.4267,
+      "MRR@10": 0.4267,
+      "MRR@20": 0.4293,
+      "nDCG@5": 0.4235,
+      "nDCG@10": 0.4413,
+      "nDCG@20": 0.4705
+    },
+    "hybrid_rrf": {
+      "Recall@5": 0.704,
+      "Recall@10": 0.8769,
+      "Recall@20": 0.975,
+      "MRR@5": 0.81,
+      "MRR@10": 0.81,
+      "MRR@20": 0.81,
+      "nDCG@5": 0.7617,
+      "nDCG@10": 0.8142,
+      "nDCG@20": 0.8616
+    }
+  },
+  "task23": {
+    "dry_run": true,
+    "task2_filter_quality": {
+      "coverage": 1.0,
+      "duplicates_ratio": 0.0513,
+      "consistency": 0.3207
+    },
+    "task3_category_before": [
+      {
+        "category": "Ноутбуки",
+        "offers": 100.0,
+        "avg_values_per_property": 4.4,
+        "weighted_mode_ratio": 0.408
+      },
+      {
+        "category": "Смартфоны",
+        "offers": 100.0,
+        "avg_values_per_property": 4.0909,
+        "weighted_mode_ratio": 0.3445
+      },
+      {
+        "category": "Телевизоры",
+        "offers": 100.0,
+        "avg_values_per_property": 4.0,
+        "weighted_mode_ratio": 0.3233
+      },
+      {
+        "category": "Наушники",
+        "offers": 100.0,
+        "avg_values_per_property": 3.2222,
+        "weighted_mode_ratio": 0.4844
+      },
+      {
+        "category": "Холодильники",
+        "offers": 100.0,
+        "avg_values_per_property": 4.2,
+        "weighted_mode_ratio": 0.353
+      },
+      {
+        "category": "Стиральные машины",
+        "offers": 100.0,
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.484
+      },
+      {
+        "category": "Фотоаппараты",
+        "offers": 100.0,
+        "avg_values_per_property": 4.4,
+        "weighted_mode_ratio": 0.351
+      },
+      {
+        "category": "Планшеты",
+        "offers": 100.0,
+        "avg_values_per_property": 4.5556,
+        "weighted_mode_ratio": 0.3244
+      },
+      {
+        "category": "Умные часы",
+        "offers": 100.0,
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.463
+      },
+      {
+        "category": "Пылесосы",
+        "offers": 100.0,
+        "avg_values_per_property": 4.1,
+        "weighted_mode_ratio": 0.362
+      },
+      {
+        "category": "Электроника",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Аудио",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Компьютеры",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Техника для дома",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Одежда и обувь",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      }
+    ],
+    "task3_category_after": [
+      {
+        "category": "Ноутбуки",
+        "offers": 100.0,
+        "avg_values_per_property": 4.4,
+        "weighted_mode_ratio": 0.408
+      },
+      {
+        "category": "Смартфоны",
+        "offers": 100.0,
+        "avg_values_per_property": 4.0909,
+        "weighted_mode_ratio": 0.3445
+      },
+      {
+        "category": "Телевизоры",
+        "offers": 100.0,
+        "avg_values_per_property": 4.0,
+        "weighted_mode_ratio": 0.3233
+      },
+      {
+        "category": "Наушники",
+        "offers": 100.0,
+        "avg_values_per_property": 3.2222,
+        "weighted_mode_ratio": 0.4844
+      },
+      {
+        "category": "Холодильники",
+        "offers": 100.0,
+        "avg_values_per_property": 4.2,
+        "weighted_mode_ratio": 0.353
+      },
+      {
+        "category": "Стиральные машины",
+        "offers": 100.0,
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.484
+      },
+      {
+        "category": "Фотоаппараты",
+        "offers": 100.0,
+        "avg_values_per_property": 4.4,
+        "weighted_mode_ratio": 0.351
+      },
+      {
+        "category": "Планшеты",
+        "offers": 100.0,
+        "avg_values_per_property": 4.5556,
+        "weighted_mode_ratio": 0.3244
+      },
+      {
+        "category": "Умные часы",
+        "offers": 100.0,
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.463
+      },
+      {
+        "category": "Пылесосы",
+        "offers": 100.0,
+        "avg_values_per_property": 4.1,
+        "weighted_mode_ratio": 0.362
+      },
+      {
+        "category": "Электроника",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Аудио",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Компьютеры",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Техника для дома",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      },
+      {
+        "category": "Одежда и обувь",
+        "offers": 1.0,
+        "avg_values_per_property": 1.0,
+        "weighted_mode_ratio": 1.0
+      }
+    ],
+    "task3_values_updated": 0
+  }
+}

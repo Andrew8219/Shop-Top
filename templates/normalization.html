@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Нормализация каталога</h1>
+
+<p>Здесь можно запустить предпросмотр, применить нормализацию и построить группы характеристик.</p>
+
+<div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:1rem;">
+    <form method="post" action="/admin/normalization/preview">
+        <button type="submit">Предпросмотр нормализации</button>
+    </form>
+
+    <form method="post" action="/admin/normalization/apply">
+        <button type="submit">Применить нормализацию</button>
+    </form>
+
+    <form method="post" action="/admin/normalization/groups">
+        <button type="submit">Построить группы характеристик</button>
+    </form>
+
+    <form method="post" action="/admin/search-index/build">
+        <button type="submit">Собрать поисковый индекс</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Предпросмотр нормализации</h1>
+
+<p>
+    Показаны первые {{ diffs|length }} отличий (исходное значение → нормализованное).<br>
+    Полное количество потенциальных изменений (по всем свойствам): {{ total_diffs }}.
+</p>
+
+<form method="post" action="/admin/normalization/apply" data-show-progress="1" style="margin-bottom: 1em;">
+    <button type="submit">Применить нормализацию к БД</button>
+</form>
+
+<table>
+    <tr>
+        <th>Свойство</th>
+        <th>Исходное значение (до)</th>
+        <th>Нормализованное (после)</th>
+    </tr>
+    {% for row in diffs %}
+        <tr>
+            <td>{{ row.prop_name }}</td>
+            <td>{{ row.raw }}</td>
+            <td>{{ row.canonical }}</td>
+        </tr>
+    {% endfor %}
+</table>
+
+<p style="margin-top:1rem;">
+    <a href="/admin/normalization">← Назад</a>
+</p>
+{% endblock %}
