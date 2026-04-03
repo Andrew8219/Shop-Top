@@ -1,25 +1,28 @@
 {% extends "base.html" %}
+{% block page_title %}Нормализация каталога — MediaLux Shop{% endblock %}
 
 {% block content %}
-<h1>Нормализация каталога</h1>
+<div class="page-header">
+    <h1 class="page-header__title">Нормализация каталога</h1>
+    <p class="page-header__meta">Предпросмотр и применение нормализации, группы характеристик, сбор поискового индекса.</p>
+    <p class="page-header__meta"><a href="/admin/analytics" class="nav-link">← Аналитика</a></p>
+</div>
 
-<p>Здесь можно запустить предпросмотр, применить нормализацию и построить группы характеристик.</p>
-
-<div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:1rem;">
-    <form method="post" action="/admin/normalization/preview">
-        <button type="submit">Предпросмотр нормализации</button>
+<div class="admin-actions">
+    <form method="post" action="/admin/normalization/preview" data-show-progress>
+        <button type="submit" class="btn btn--secondary">Предпросмотр нормализации</button>
     </form>
 
-    <form method="post" action="/admin/normalization/apply">
-        <button type="submit">Применить нормализацию</button>
+    <form method="post" action="/admin/normalization/apply" data-show-progress>
+        <button type="submit" class="btn btn--primary">Применить нормализацию</button>
     </form>
 
-    <form method="post" action="/admin/normalization/groups">
-        <button type="submit">Построить группы характеристик</button>
+    <form method="post" action="/admin/normalization/groups" data-show-progress>
+        <button type="submit" class="btn btn--secondary">Построить группы характеристик</button>
     </form>
 
-    <form method="post" action="/admin/search-index/build">
-        <button type="submit">Собрать поисковый индекс</button>
+    <form method="post" action="/admin/search-index/build" data-show-progress>
+        <button type="submit" class="btn btn--secondary">Собрать поисковый индекс</button>
     </form>
 </div>
 {% endblock %}

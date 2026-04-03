@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, Integer, String, Text, DateTime
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -106,6 +106,25 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     is_superuser = Column(Boolean, nullable=False, default=False)
+
+
+class ShopOrder(Base):
+    """Заказы витрины (оформление корзины можно подключить позже)."""
+
+    __tablename__ = "shop_orders"
+
+    order_id = Column(Integer, primary_key=True, autoincrement=True)
+    total_amount = Column(Numeric(12, 2), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AnalyticsDailyVisit(Base):
+    """Агрегированные визиты по календарным дням (для конверсии)."""
+
+    __tablename__ = "analytics_daily_visits"
+
+    stat_date = Column(Date, primary_key=True)
+    visits = Column(Integer, nullable=False, default=0)
 
 
 class SearchIndex(Base):

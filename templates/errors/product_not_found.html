@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block page_title %}Товар не найден — MediaLux Shop{% endblock %}
+
+{% block content %}
+<div class="empty-state empty-state--error" role="alert">
+    <div class="empty-state__icon" aria-hidden="true">?</div>
+    <h1 class="empty-state__title">Товар не найден</h1>
+    <p class="empty-state__text">
+        Оффер с номером <strong>{{ offer_id }}</strong> отсутствует в каталоге. Возможно, ссылка устарела.
+    </p>
+    <div class="empty-state__actions">
+        <a href="/" class="btn btn--primary">В каталог</a>
+        <p class="empty-state__hint">Поиск доступен в шапке сайта.</p>
+    </div>
+</div>
+{% endblock %}

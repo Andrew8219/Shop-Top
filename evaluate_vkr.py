@@ -11,7 +11,13 @@ from normalization import (
     evaluate_category_consistency,
     evaluate_filter_quality,
 )
-from search_index import rrf_merge, semantic_search_faiss, semantic_search_pgvector, text_search
+from search_index import (
+    filter_offer_ids_by_query_tokens,
+    rrf_merge,
+    semantic_search_faiss,
+    semantic_search_pgvector,
+    text_search,
+)
 
 
 def _recall_at_k(pred: Sequence[int], rel: set[int], k: int) -> float:
@@ -75,6 +81,7 @@ def _evaluate_task5(dataset_path: Path) -> Dict[str, Dict[str, float]]:
                     sem = []
             txt = text_search(db, q, top_k=100)
             hyb_ids = rrf_merge(sem, txt, k=60, limit=100)
+            hyb_ids = filter_offer_ids_by_query_tokens(db, hyb_ids, q)
 
             pred_sem = _ids_from_rank_pairs(sem)
             pred_txt = _ids_from_rank_pairs(txt)

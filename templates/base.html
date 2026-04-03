@@ -2,36 +2,74 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>{{ title or "MediaLux Shop" }}</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block page_title %}{{ title or "MediaLux Shop" }}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
-<header>
-    <nav class="nav-bar">
-        <div class="nav-left">
-            <a href="/">Магазин</a> |
-            <a href="/admin/normalization">Нормализация свойств</a>
+<a href="#main-content" class="skip-link">К основному содержимому</a>
+
+<header class="site-header">
+    <div class="site-header__shell">
+        <div class="site-header__row site-header__row--top">
+            <a href="/" class="site-logo-full" aria-label="MediaLux Shop — на главную">MediaLux Shop</a>
+            <div class="site-header__profile">
+                {% if user %}
+                    <span class="site-header__profile-text">Профиль, {{ user.username }}</span>
+                {% else %}
+                    <span class="site-header__profile-text site-header__profile-text--muted">Гость</span>
+                {% endif %}
+            </div>
         </div>
-        <div class="nav-right">
-            {% if user %}
-                <span class="nav-user">Привет, {{ user.username }}!</span>
-                <form method="post" action="/logout" style="display:inline;">
-                    <button type="submit" class="nav-btn">Выход</button>
+
+        <div class="site-header__row site-header__row--nav">
+            <nav class="site-header__nav" aria-label="Разделы магазина">
+                <a href="/" class="nav-link{% if request.url.path == '/' and not request.query_params.get('q') %} nav-link--active{% endif %}">Каталог</a>
+                <a href="/cart" class="nav-link nav-link--cart">Корзина{% if request.state.cart_count %} ({{ request.state.cart_count }}){% endif %}</a>
+                <a href="/about" class="nav-link">О магазине</a>
+                <a href="/about#contacts" class="nav-link">Контакты</a>
+                {% if user and user.is_superuser %}
+                    <a href="/admin/analytics" class="nav-link nav-link--admin">Аналитика</a>
+                    <a href="/admin/normalization" class="nav-link nav-link--admin">Нормализация</a>
+                {% endif %}
+            </nav>
+        </div>
+
+        <div class="site-header__row site-header__row--search">
+            <div class="header-search-block">
+                <label for="header-q" class="header-search__label">Поиск по каталогу</label>
+                <form class="header-search" method="get" action="/search" role="search" data-nav-loading>
+                    <input
+                        id="header-q"
+                        class="header-search__input"
+                        type="search"
+                        name="q"
+                        value="{{ request.query_params.get('q', '') | e }}"
+                        placeholder="Поиск…"
+                        autocomplete="off"
+                        enterkeyhint="search"
+                        required
+                    >
+                    <button type="submit" class="btn btn--primary header-search__btn">Найти</button>
                 </form>
-            {% else %}
-                <a href="/login">Вход</a> |
-                <a href="/register">Регистрация</a>
-            {% endif %}
+            </div>
+            <div class="site-header__search-actions">
+                {% if user %}
+                    <form method="post" action="/logout" class="nav-logout-form">
+                        <button type="submit" class="btn btn--header-exit">Выход</button>
+                    </form>
+                {% else %}
+                    <a href="/login" class="btn btn--header-exit btn--header-exit--ghost">Вход</a>
+                    <a href="/register" class="btn btn--header-exit">Регистрация</a>
+                {% endif %}
+            </div>
         </div>
-    </nav>
+    </div>
 </header>
 
-<!-- Оверлей прогресса -->
-<div id="progress-overlay" class="progress-overlay hidden">
+<div id="progress-overlay" class="progress-overlay hidden" aria-hidden="true">
     <div class="progress-box">
-        <button type="button" class="progress-close" aria-label="Закрыть">
-            ✕
-        </button>
+        <button type="button" class="progress-close" aria-label="Закрыть">✕</button>
         <div class="progress-title">Выполняется обработка…</div>
         <div class="progress-bar">
             <div class="progress-bar-fill"></div>
@@ -40,47 +78,80 @@
     </div>
 </div>
 
-<main>
+<div class="page-loading-bar" id="page-loading-bar" aria-hidden="true"></div>
+
+<main id="main-content" class="layout-main">
     {% block content %}{% endblock %}
 </main>
+
+<footer class="site-footer">
+    <div class="site-footer__inner">
+        <div class="site-footer__col">
+            <strong>MediaLux Shop</strong>
+            <p class="site-footer__muted">Демонстрационный каталог для ВКР.</p>
+        </div>
+        <div class="site-footer__col">
+            <strong>Покупателям</strong>
+            <ul class="site-footer__list">
+                <li><a href="/">Каталог</a></li>
+                <li><a href="/cart">Корзина</a></li>
+                <li><a href="/about#contacts">Контакты</a></li>
+            </ul>
+        </div>
+        <div class="site-footer__col">
+            <strong>Документы</strong>
+            <p class="site-footer__muted">Политика конфиденциальности — в разработке.</p>
+        </div>
+    </div>
+    <div class="site-footer__bottom">
+        <span>© 2026 MediaLux Shop</span>
+    </div>
+</footer>
 
 <script>
 (function () {
     function initOverlay() {
-        const overlay = document.getElementById('progress-overlay');
+        var overlay = document.getElementById('progress-overlay');
         if (!overlay) return;
-
         overlay.classList.add('hidden');
-
-        const closeBtn = overlay.querySelector('.progress-close');
+        var closeBtn = overlay.querySelector('.progress-close');
         if (closeBtn) {
             closeBtn.addEventListener('click', function (e) {
                 e.preventDefault();
                 overlay.classList.add('hidden');
-                console.log('[progress] overlay closed manually');
             });
         }
-
-        const forms = document.querySelectorAll('form[data-show-progress]');
-        forms.forEach(function (form) {
+        document.querySelectorAll('form[data-show-progress]').forEach(function (form) {
             form.addEventListener('submit', function () {
-                console.log('[progress] show overlay for form', form.action);
                 overlay.classList.remove('hidden');
             });
         });
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('[progress] DOMContentLoaded');
-        initOverlay();
-    });
+    function initNavLoading() {
+        var bar = document.getElementById('page-loading-bar');
+        document.querySelectorAll('form[data-nav-loading]').forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var q = form.querySelector('input[name="q"]');
+                if (q && (!q.value || !String(q.value).trim())) {
+                    return;
+                }
+                document.body.classList.add('is-nav-loading');
+                if (bar) bar.classList.add('is-visible');
+            });
+        });
+    }
 
+    document.addEventListener('DOMContentLoaded', function () {
+        initOverlay();
+        initNavLoading();
+    });
     window.addEventListener('pageshow', function () {
-        console.log('[progress] pageshow');
-        const overlay = document.getElementById('progress-overlay');
-        if (overlay) {
-            overlay.classList.add('hidden');
-        }
+        document.body.classList.remove('is-nav-loading');
+        var bar = document.getElementById('page-loading-bar');
+        if (bar) bar.classList.remove('is-visible');
+        var overlay = document.getElementById('progress-overlay');
+        if (overlay) overlay.classList.add('hidden');
     });
 })();
 </script>

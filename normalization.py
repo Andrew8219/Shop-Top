@@ -162,8 +162,12 @@ def collect(session: Session):
     return values
 
 
-def build_mapping(session: Session):
+def build_mapping(session: Session, progress_cb: Optional[ProgressCallback] = None):
+    if progress_cb:
+        progress_cb("collect", 0, 1)
     values = collect(session)
+    if progress_cb:
+        progress_cb("collect", 1, 1)
 
     all_vals = [v for c in values.values() for v in c.keys()]
 
@@ -173,8 +177,10 @@ def build_mapping(session: Session):
         embedder.fit(all_vals)
 
     result = {}
+    props_list = list(values.items())
+    total_props = len(props_list) or 1
 
-    for prop, counter in values.items():
+    for i, (prop, counter) in enumerate(props_list):
         vals = list(counter.keys())
 
         if embedder:
@@ -183,38 +189,47 @@ def build_mapping(session: Session):
             mapping = {v: v for v in vals}
 
         result[prop] = mapping
+        if progress_cb:
+            progress_cb("mapping", i + 1, total_props)
 
     return result
 
 
-def apply_mapping(session: Session, mapping):
-    total = 0
-
+def apply_mapping(
+    session: Session,
+    mapping,
+    progress_cb: Optional[ProgressCallback] = None,
+):
     name_to_id = {
         name: pid for pid, name in session.execute(
             select(PropertyName.property_name_id, PropertyName.name)
         )
     }
 
+    ops: List[Tuple[int, str, str]] = []
     for prop, m in mapping.items():
         pid = name_to_id.get(prop)
         if not pid:
             continue
-
         for raw, canon in m.items():
             if raw == canon:
                 continue
+            ops.append((pid, raw, canon))
 
-            stmt = (
-                update(ProductProperty)
-                .where(ProductProperty.property_name_id == pid)
-                .where(ProductProperty.value == raw)
-                .values(value=canon)
-            )
-
-            result = session.execute(stmt)
-            rows_affected = result.rowcount if hasattr(result, "rowcount") else 0
-            total += rows_affected
+    total = 0
+    n_ops = len(ops) or 1
+    for idx, (pid, raw, canon) in enumerate(ops, start=1):
+        stmt = (
+            update(ProductProperty)
+            .where(ProductProperty.property_name_id == pid)
+            .where(ProductProperty.value == raw)
+            .values(value=canon)
+        )
+        result = session.execute(stmt)
+        rows_affected = result.rowcount if hasattr(result, "rowcount") else 0
+        total += rows_affected
+        if progress_cb:
+            progress_cb("apply", idx, n_ops)
 
     session.commit()
     return total
@@ -229,14 +244,35 @@ def _fallback_grouping(session: Session):
     return {pid: name for pid, name in rows}
 
 
-def build_property_name_groups(session: Session, use_llm=True, llm_model_dir=None):
+def build_property_name_groups(
+    session: Session,
+    use_llm=True,
+    llm_model_dir=None,
+    distance_threshold: float = 0.6,
+    progress_cb: Optional[ProgressCallback] = None,
+):
+    """
+    distance_threshold зарезервирован под будущую кластеризацию имён свойств;
+    в текущем fallback/LLM-заглушке не используется.
+    """
+    _ = distance_threshold
+
+    if progress_cb:
+        progress_cb("group", 0, 1)
+
     if use_llm and llm_model_dir:
         try:
-            return build_property_name_groups_llm(session, llm_model_dir)
+            out = build_property_name_groups_llm(session, llm_model_dir)
+            if progress_cb:
+                progress_cb("group", 1, 1)
+            return out
         except Exception as e:
             LOG.warning("LLM failed: %s", e)
 
-    return _fallback_grouping(session)
+    out = _fallback_grouping(session)
+    if progress_cb:
+        progress_cb("group", 1, 1)
+    return out
 
 
 def build_property_name_groups_llm(session, model_dir):
@@ -250,30 +286,34 @@ def build_property_name_groups_llm(session, model_dir):
 from sqlalchemy import delete
 
 
-def merge_duplicate_property_names(session: Session):
-    """Объединяет дублирующиеся названия свойств"""
+def merge_duplicate_property_names(
+    session: Session,
+    progress_cb: Optional[ProgressCallback] = None,
+) -> Tuple[int, int]:
+    """Объединяет дублирующиеся названия свойств.
 
-    # Получаем все свойства и их ID
+    Возвращает (число объединённых дубликатов, число удалённых строк property_names).
+    """
+
     stmt = select(PropertyName.property_name_id, PropertyName.name)
     rows = session.execute(stmt).all()
 
-    # Группируем по названиям (приводим к нижнему регистру для сравнения)
     name_groups = defaultdict(list)
     for pid, name in rows:
         normalized_name = normalize_whitespace(name.lower())
         name_groups[normalized_name].append((pid, name))
 
-    # Находим дубликаты и объединяем их
+    keys = list(name_groups.keys())
+    total_groups = len(keys) or 1
+
     merged_count = 0
-    for normalized_name, group in name_groups.items():
+    for gi, normalized_name in enumerate(keys):
+        group = name_groups[normalized_name]
         if len(group) > 1:
-            # Выбираем каноническое название (первое по алфавиту или самое длинное)
             canonical_pid, canonical_name = sorted(group, key=lambda x: x[1])[0]
 
-            # Обновляем все остальные записи на канонический ID
             for pid, name in group[1:]:
                 if pid != canonical_pid:
-                    # Переносим все значения свойств на канонический ID
                     update_stmt = (
                         update(ProductProperty)
                         .where(ProductProperty.property_name_id == pid)
@@ -281,7 +321,6 @@ def merge_duplicate_property_names(session: Session):
                     )
                     session.execute(update_stmt)
 
-                    # Удаляем дублирующуюся запись PropertyName
                     delete_stmt = (
                         delete(PropertyName)
                         .where(PropertyName.property_name_id == pid)
@@ -289,10 +328,13 @@ def merge_duplicate_property_names(session: Session):
                     session.execute(delete_stmt)
 
                     merged_count += 1
+        if progress_cb:
+            progress_cb("merge", gi + 1, total_groups)
 
     session.commit()
-    LOG.info(f"Объединено {merged_count} дублирующихся свойств")
-    return merged_count
+    LOG.info("Объединено %s дублирующихся свойств", merged_count)
+    # каждое объединение удаляет одну строку property_names
+    return merged_count, merged_count
 
 
 # =========================

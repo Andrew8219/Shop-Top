@@ -1,99 +1,105 @@
 {% extends "base.html" %}
+{% block page_title %}{% if q %}Поиск: {{ q }} — {% endif %}Каталог — MediaLux Shop{% endblock %}
 
 {% block content %}
-<h1>Товары</h1>
+<div class="catalog-intro">
+    <div class="page-header page-header--in-intro">
+        <h1 class="page-header__title">{% if q %}Результаты поиска{% else %}Каталог{% endif %}</h1>
+        {% if q %}
+            <p class="page-header__meta">Запрос: <strong>{{ q }}</strong></p>
+            <p class="page-header__meta page-header__hint">Из результатов поиска остаются только товары, в которых встречаются <strong>все</strong> слова и числа из запроса (в названии или характеристиках).</p>
+        {% else %}
+            <p class="page-header__meta page-header__hint">
+                Подсказка: воспользуйтесь поиском в шапке — поддерживается гибридный поиск (смысл + ключевые слова).
+            </p>
+        {% endif %}
+    </div>
 
-<form method="get" action="/search" style="margin: 1rem 0; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-    <input
-        type="text"
-        name="q"
-        value="{{ q or '' }}"
-        placeholder="Поиск: например, 'смартфон 128 гб samsung'"
-        style="min-width: 320px; max-width: 640px; flex: 1 1 320px;"
-    />
-    <button type="submit">Искать</button>
-    {% if q %}
-        <a href="/" style="margin-left: 0.5rem;">Сбросить</a>
+    {% if offers %}
+        <p class="catalog-summary catalog-summary--in-intro">
+            Показано <strong>{{ from_item }}–{{ to_item }}</strong> из <strong>{{ total_offers }}</strong> товаров.
+        </p>
     {% endif %}
-</form>
+</div>
 
 {% if offers %}
-    <p>
-        {% if q %}
-            Результаты по запросу: <b>{{ q }}</b><br/>
-        {% endif %}
-        Показано {{ from_item }}–{{ to_item }} из {{ total_offers }} товаров.
-    </p>
-
-    <table>
-        <thead>
-        <tr>
-            <th>ID оффера</th>
-            <th>Товар</th>
-            <th>Компания</th>
-            <th>Категория</th>
-        </tr>
-        </thead>
-        <tbody>
+    <div class="catalog-grid" role="list">
         {% for offer in offers %}
-            <tr>
-                <td>{{ offer.offer_id }}</td>
-                <td>
-                    <a href="/product/{{ offer.offer_id }}">
-                        {{ offer.short_name or ("Товар #" ~ offer.product_id) }}
-                    </a>
-                </td>
-                <td>
-                    {{ offer.company.name if offer.company else "Без компании" }}
-                </td>
-                <td>
-                    {% if offer.category %}
-                        {{ offer.category.name }}
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
-            </tr>
+        <article class="product-card product-card--minimal" role="listitem">
+            <div class="product-card__body">
+                <h2 class="product-card__title">
+                    <a href="/product/{{ offer.offer_id }}">{{ offer.short_name or ("Товар #" ~ offer.product_id) }}</a>
+                </h2>
+                {% set p = shop_price(offer) %}
+                {% if p %}
+                    <p class="product-card__price">{{ p }}</p>
+                {% else %}
+                    <p class="product-card__price product-card__price--muted">Цена по запросу</p>
+                {% endif %}
+                <ul class="product-card__teaser">
+                    {% for line in shop_teaser(offer, 3) %}
+                        <li>{{ line }}</li>
+                    {% endfor %}
+                </ul>
+                <div class="product-card__meta">
+                    {% if offer.company %}<span>{{ offer.company.name }}</span>{% endif %}
+                    {% if offer.category %}<span class="product-card__dot">·</span><span>{{ offer.category.name }}</span>{% endif %}
+                </div>
+                <div class="product-card__links">
+                    <a href="/product/{{ offer.offer_id }}">Подробнее</a>
+                    <span class="product-card__links-sep" aria-hidden="true"> · </span>
+                    <form method="post" action="/cart/add" class="product-card__add-form">
+                        <input type="hidden" name="offer_id" value="{{ offer.offer_id }}">
+                        <input type="hidden" name="quantity" value="1">
+                        <input type="hidden" name="redirect" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+                        <button type="submit" class="product-card__add-btn">В корзину</button>
+                    </form>
+                </div>
+                <div class="product-card__code" aria-hidden="true">{{ shop_initials(offer) }}</div>
+            </div>
+        </article>
         {% endfor %}
-        </tbody>
-    </table>
+    </div>
 
     {% if total_pages > 1 %}
-        <div class="pagination" style="margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
-            <span class="page-info">
-                Страница {{ page }} из {{ total_pages }}
-            </span>
-            <div class="page-links" style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-left: 0.8rem;">
-                {% if page > 1 %}
-                    <a href="/?page=1">&laquo; В начало</a>
-                    <a href="/?page={{ page - 1 }}">Назад</a>
+    <nav class="pagination" aria-label="Страницы каталога">
+        <span class="pagination__info">Страница {{ page }} из {{ total_pages }}</span>
+        <div class="pagination__links">
+            {% if page > 1 %}
+                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page=1{% else %}/?page=1{% endif %}">В начало</a>
+                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ page - 1 }}{% else %}/?page={{ page - 1 }}{% endif %}">Назад</a>
+            {% endif %}
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == page %}
+                    <span class="pagination__current" aria-current="page">{{ p }}</span>
+                {% elif p >= page - 2 and p <= page + 2 %}
+                    <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ p }}{% else %}/?page={{ p }}{% endif %}">{{ p }}</a>
                 {% endif %}
-
-                {# показываем +-2 страницы вокруг текущей #}
-                {% for p in range(1, total_pages + 1) %}
-                    {% if p == page %}
-                        <span class="page-current" style="font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 4px; background: #2563eb; color: #fff;">
-                            {{ p }}
-                        </span>
-                    {% elif p >= page - 2 and p <= page + 2 %}
-                        <a href="/?page={{ p }}" style="padding: 0.1rem 0.5rem; border-radius: 4px; text-decoration: none;">
-                            {{ p }}
-                        </a>
-                    {% endif %}
-                {% endfor %}
-
-                {% if page < total_pages %}
-                    <a href="/?page={{ page + 1 }}">Вперёд</a>
-                    <a href="/?page={{ total_pages }}">В конец &raquo;</a>
-                {% endif %}
-            </div>
+            {% endfor %}
+            {% if page < total_pages %}
+                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ page + 1 }}{% else %}/?page={{ page + 1 }}{% endif %}">Вперёд</a>
+                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ total_pages }}{% else %}/?page={{ total_pages }}{% endif %}">В конец</a>
+            {% endif %}
         </div>
+    </nav>
     {% endif %}
+
 {% else %}
     {% if q %}
-        <p>Ничего не найдено по запросу: <b>{{ q }}</b></p>
+        <div class="empty-state" role="status">
+            <div class="empty-state__icon" aria-hidden="true">∅</div>
+            <h2 class="empty-state__title">Ничего не найдено</h2>
+            <p class="empty-state__text">По запросу <strong>{{ q }}</strong> совпадений нет. Попробуйте другие слова или проверьте, собран ли поисковый индекс в админке.</p>
+            <div class="empty-state__actions">
+                <a href="/" class="btn btn--primary">Весь каталог</a>
+            </div>
+        </div>
     {% else %}
-        <p>Пока нет товаров для отображения.</p>
+        <div class="empty-state" role="status">
+            <div class="empty-state__icon" aria-hidden="true">□</div>
+            <h2 class="empty-state__title">Каталог пуст</h2>
+            <p class="empty-state__text">Товары ещё не загружены в базу. После импорта данных карточки появятся здесь автоматически.</p>
+        </div>
     {% endif %}
 {% endif %}
 {% endblock %}

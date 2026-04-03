@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block page_title %}Аналитика — MediaLux Shop{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-header__title">Аналитика</h1>
+    <p class="page-header__meta">
+        Показатели за выбранный период. Визиты считаются по посещениям витрины (не чаще одного раза в сутки с одного браузера).
+        Заказы появляются после записи в таблицу <code>shop_orders</code> (оформление корзины можно подключить отдельно).
+    </p>
+</div>
+
+{% if show_seeded_notice %}
+<p class="form-note admin-analytics__notice" role="status">Добавлены демонстрационные заказы и визиты.</p>
+{% endif %}
+
+<nav class="admin-analytics__period" aria-label="Период отчёта">
+    <span class="admin-analytics__period-label">Период:</span>
+    <a href="/admin/analytics?days=7" class="nav-link{% if days == 7 %} nav-link--active{% endif %}">7 дн.</a>
+    <a href="/admin/analytics?days=30" class="nav-link{% if days == 30 %} nav-link--active{% endif %}">30 дн.</a>
+    <a href="/admin/analytics?days=90" class="nav-link{% if days == 90 %} nav-link--active{% endif %}">90 дн.</a>
+</nav>
+
+<div class="admin-kpi-grid" role="list">
+    <article class="admin-kpi-card" role="listitem">
+        <h2 class="admin-kpi-card__label">Выручка</h2>
+        <p class="admin-kpi-card__value">{{ "%.2f"|format(kpis.revenue_rub) }}&nbsp;₽</p>
+        <p class="admin-kpi-card__hint">Сумма поля <code>total_amount</code> заказов за период</p>
+    </article>
+    <article class="admin-kpi-card" role="listitem">
+        <h2 class="admin-kpi-card__label">Количество заказов</h2>
+        <p class="admin-kpi-card__value">{{ kpis.orders_count }}</p>
+        <p class="admin-kpi-card__hint">Записей в <code>shop_orders</code></p>
+    </article>
+    <article class="admin-kpi-card" role="listitem">
+        <h2 class="admin-kpi-card__label">Средний чек</h2>
+        <p class="admin-kpi-card__value">
+            {% if kpis.avg_check_rub is not none %}
+                {{ "%.2f"|format(kpis.avg_check_rub) }}&nbsp;₽
+            {% else %}
+                —
+            {% endif %}
+        </p>
+        <p class="admin-kpi-card__hint">Выручка / заказы</p>
+    </article>
+    <article class="admin-kpi-card" role="listitem">
+        <h2 class="admin-kpi-card__label">Конверсия</h2>
+        <p class="admin-kpi-card__value">
+            {% if kpis.conversion_percent is not none %}
+                {{ "%.2f"|format(kpis.conversion_percent) }}&nbsp;%
+            {% else %}
+                —
+            {% endif %}
+        </p>
+        <p class="admin-kpi-card__hint">Заказы / визиты × 100% (визиты — агрегат по дням)</p>
+    </article>
+</div>
+
+<div class="admin-kpi-meta card card--muted">
+    <p class="admin-kpi-meta__line"><strong>Визитов за период (сумма по дням):</strong> {{ kpis.visits }}</p>
+</div>
+
+<div class="admin-actions admin-analytics__actions">
+    <form method="post" action="/admin/analytics/seed-demo">
+        <button type="submit" class="btn btn--secondary">Заполнить демо-данными</button>
+    </form>
+    <a href="/admin/normalization" class="btn btn--ghost">Нормализация каталога</a>
+</div>
+{% endblock %}

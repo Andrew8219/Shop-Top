@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block page_title %}Корзина — MediaLux Shop{% endblock %}
+
+{% block content %}
+<div class="page-hero page-hero--narrow">
+    <h1>Корзина</h1>
+    <p class="page-hero__lead">
+        Товары хранятся в браузере (подписанная cookie). Оформление заказа и оплата пока не подключены — демо для ВКР.
+    </p>
+</div>
+
+{% if cart_stale_count %}
+<p class="form-note cart-page__warn" role="status">
+    {{ cart_stale_count }} поз. из корзины больше нет в каталоге — они скрыты из списка. Очистите корзину или удалите устаревшие записи cookie.
+</p>
+{% endif %}
+
+{% if cart_lines %}
+<div class="cart-table-wrap card">
+    <table class="cart-table">
+        <thead>
+            <tr>
+                <th scope="col">Товар</th>
+                <th scope="col">Цена за ед.</th>
+                <th scope="col">Кол-во</th>
+                <th scope="col">Сумма</th>
+                <th scope="col"><span class="visually-hidden">Действия</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in cart_lines %}
+            <tr>
+                <td>
+                    <a href="/product/{{ row.offer.offer_id }}" class="cart-table__title">
+                        {{ row.offer.short_name or ("Товар #" ~ row.offer.product_id) }}
+                    </a>
+                    {% if row.offer.company %}
+                        <div class="cart-table__meta">{{ row.offer.company.name }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.price_label %}
+                        {{ row.price_label }}
+                    {% else %}
+                        <span class="cart-table__muted">Цена по запросу</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="/cart/set-qty" class="cart-table__qty-form">
+                        <input type="hidden" name="offer_id" value="{{ row.offer.offer_id }}">
+                        <input type="number" name="quantity" class="cart-table__qty-input" min="1" max="99" value="{{ row.qty }}" aria-label="Количество">
+                        <button type="submit" class="btn btn--secondary btn--small">OK</button>
+                    </form>
+                </td>
+                <td>
+                    {% if row.line_total_rub is not none %}
+                        {{ "%.2f"|format(row.line_total_rub) }}&nbsp;₽
+                    {% else %}
+                        <span class="cart-table__muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="/cart/remove" class="cart-table__remove-form">
+                        <input type="hidden" name="offer_id" value="{{ row.offer.offer_id }}">
+                        <button type="submit" class="btn btn--ghost btn--small cart-table__remove">Удалить</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="cart-summary card card--muted">
+    {% if cart_subtotal_rub is not none %}
+        <p class="cart-summary__line">
+            <strong>Сумма по позициям с указанной ценой:</strong>
+            {{ "%.2f"|format(cart_subtotal_rub) }}&nbsp;₽
+        </p>
+    {% endif %}
+    {% if cart_missing_price %}
+        <p class="cart-summary__note">Часть товаров без числовой цены в данных — итог по ним не считается.</p>
+    {% endif %}
+</div>
+
+<div class="stack stack--horizontal">
+    <a href="/" class="btn btn--primary">Продолжить покупки</a>
+</div>
+
+{% else %}
+<div class="card card--muted">
+    <p>Корзина пуста. Добавьте товары из каталога или со страницы товара.</p>
+    <div class="stack stack--horizontal">
+        <a href="/" class="btn btn--primary">В каталог</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

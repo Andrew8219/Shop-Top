@@ -1,48 +1,88 @@
 {% extends "base.html" %}
+{% block page_title %}{{ offer.short_name or ("Товар #" ~ offer.product_id) }} — MediaLux Shop{% endblock %}
 
 {% block content %}
-<h1>
-    {{ offer.short_name or ("Товар #" ~ offer.product_id) }}
-</h1>
+<nav class="breadcrumbs" aria-label="Навигация по сайту">
+    <ul class="breadcrumbs__list">
+        <li><a href="/">Главная</a></li>
+        {% if offer.category %}
+            <li class="breadcrumbs__sep" aria-hidden="true">/</li>
+            <li><a href="/search?q={{ offer.category.name | urlencode }}">{{ offer.category.name }}</a></li>
+        {% endif %}
+        <li class="breadcrumbs__sep" aria-hidden="true">/</li>
+        <li aria-current="page">{{ offer.short_name or ("Товар #" ~ offer.product_id) }}</li>
+    </ul>
+</nav>
 
-<p>
-    <strong>Компания:</strong>
-    {{ offer.company.name if offer.company else "Без компании" }}<br>
-    <strong>Категория:</strong>
-    {% if offer.category %}
-        {{ offer.category.name }}
-    {% else %}
-        —
-    {% endif %}
-</p>
+<div class="product-hero">
+    <div class="product-hero__media">
+        <div class="product-hero__placeholder" aria-hidden="true">{{ shop_initials(offer) }}</div>
+    </div>
+    <div class="product-hero__info">
+        <h1 class="product-hero__title">{{ offer.short_name or ("Товар #" ~ offer.product_id) }}</h1>
+        {% if price_display %}
+            <p class="product-hero__price">{{ price_display }}</p>
+        {% else %}
+            <p class="product-hero__price product-hero__price--muted">Цена уточняется по запросу</p>
+        {% endif %}
+        <p class="product-hero__vendor">
+            <strong>Бренд:</strong> {{ offer.company.name if offer.company else "—" }}
+            {% if offer.category %}
+                <span class="product-hero__dot">·</span>
+                <strong>Категория:</strong> {{ offer.category.name }}
+            {% endif %}
+        </p>
+        {% if key_attrs %}
+            <ul class="product-hero__attrs">
+                {% for line in key_attrs %}
+                    <li>{{ line }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        <div class="product-hero__actions">
+            <form method="post" action="/cart/add" class="product-hero__add-form">
+                <input type="hidden" name="offer_id" value="{{ offer.offer_id }}">
+                <input type="hidden" name="quantity" value="1">
+                <input type="hidden" name="redirect" value="{{ request.url.path }}">
+                <button type="submit" class="btn btn--primary btn--large">В корзину</button>
+            </form>
+            <a href="/" class="btn btn--secondary btn--large">В каталог</a>
+        </div>
+        <p class="product-hero__note">Оформление заказа в демо-режиме: см. страницу «Корзина».</p>
+    </div>
+</div>
 
 {% if grouped_props %}
     {% for group_name, props_in_group in grouped_props %}
-        <h2>{{ group_name }}</h2>
-        <table>
-            <thead>
-            <tr>
-                <th>Характеристика</th>
-                <th>Значение</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% for p in props_in_group %}
-                <tr>
-                    <td>
-                        {{ p.property_name.name if p.property_name else ("Свойство #" ~ p.property_name_id) }}
-                    </td>
-                    <td>{{ p.value }}</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <section class="spec-section">
+            <h2 class="spec-section__title">{{ group_name }}</h2>
+            <div class="spec-table-wrap">
+                <table class="spec-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Характеристика</th>
+                            <th scope="col">Значение</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in props_in_group %}
+                            <tr>
+                                <td>{{ p.property_name.name if p.property_name else ("Свойство #" ~ p.property_name_id) }}</td>
+                                <td>{{ p.value }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
     {% endfor %}
 {% else %}
-    <p>Для данного товара пока нет характеристик.</p>
+    <div class="empty-state empty-state--compact" role="status">
+        <p class="empty-state__text">Для данного товара пока нет характеристик в базе.</p>
+    </div>
 {% endif %}
 
-<p style="margin-top: 1rem;">
-    <a href="/" style="text-decoration: none;">&larr; Назад к списку товаров</a>
+<p class="back-row">
+    <a href="/" class="back-link">← Назад к списку товаров</a>
 </p>
 {% endblock %}

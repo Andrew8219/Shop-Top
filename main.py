@@ -17,6 +17,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.requests import Request as StarletteRequest
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
@@ -29,9 +30,11 @@ from models import (
     ProductProperty,
     User,
 )
+import analytics
 from search_index import (
     build_search_index,
     fetch_offers_in_order,
+    filter_offer_ids_by_query_tokens,
     rrf_merge,
     semantic_search_faiss,
     semantic_search_pgvector,
@@ -43,6 +46,8 @@ from normalization import (
     merge_duplicate_property_names,
     build_property_name_groups,
 )
+import shop_ui
+import cart_cookie
 
 # =====================
 #   КОНФИГ MINI-LLM ДЛЯ ГРУПП
@@ -165,8 +170,39 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="MediaLux Shop")
 
+
+@app.middleware("http")
+async def shop_visit_tracking_middleware(request: StarletteRequest, call_next):
+    response = await call_next(request)
+    if request.method != "GET" or not analytics.should_count_path(request.url.path):
+        return response
+    db = SessionLocal()
+    try:
+        analytics.record_daily_visit(request, response, db)
+    except Exception:
+        LOG.exception("Ошибка учёта визита")
+        db.rollback()
+    finally:
+        db.close()
+    return response
+
+
+@app.middleware("http")
+async def cart_state_middleware(request: StarletteRequest, call_next):
+    raw = request.cookies.get(cart_cookie.COOKIE_NAME)
+    cart = cart_cookie.parse_cart_cookie(raw, SECRET_KEY)
+    request.state.cart = cart
+    request.state.cart_count = sum(cart.values())
+    return await call_next(request)
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["shop_price"] = shop_ui.get_offer_price_display
+templates.env.globals["shop_teaser"] = shop_ui.get_offer_teaser_lines
+templates.env.globals["shop_initials"] = shop_ui.offer_card_initials
+templates.env.globals["shop_is_price_prop"] = shop_ui.is_price_property
+templates.env.globals["shop_price_rub"] = shop_ui.get_offer_price_rub
 
 
 def get_db():
@@ -175,6 +211,23 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _cart_from_request(request: Request) -> Dict[int, int]:
+    cart = getattr(request.state, "cart", None)
+    if isinstance(cart, dict):
+        return dict(cart)
+    raw = request.cookies.get(cart_cookie.COOKIE_NAME)
+    return cart_cookie.parse_cart_cookie(raw, SECRET_KEY)
+
+
+def _safe_next_path(nxt: Optional[str], default: str = "/cart") -> str:
+    if not nxt or not isinstance(nxt, str):
+        return default
+    p = nxt.strip()
+    if not p.startswith("/") or p.startswith("//"):
+        return default
+    return p
 
 
 # =====================
@@ -499,6 +552,7 @@ async def index(
                 selectinload(ProductOffer.company),
                 selectinload(ProductOffer.category),
                 selectinload(ProductOffer.product),
+                selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
             )
             .order_by(ProductOffer.offer_id)
             .offset(offset)
@@ -520,6 +574,8 @@ async def index(
             "total_offers": total_offers,
             "from_item": from_item,
             "to_item": to_item,
+            "q": "",
+            "is_search": False,
         },
     )
 
@@ -544,9 +600,14 @@ async def product_detail(
     )
     offer: ProductOffer | None = db.execute(stmt).scalars().first()
     if offer is None:
-        return HTMLResponse(
-            content=f"<h1>Товар с offer_id={offer_id} не найден</h1>",
+        return templates.TemplateResponse(
+            request=request,
+            name="errors/product_not_found.html",
             status_code=404,
+            context={
+                "user": current_user,
+                "offer_id": offer_id,
+            },
         )
 
     props = sorted(
@@ -569,6 +630,8 @@ async def product_detail(
         key=lambda x: x[0],
     )
 
+    key_attrs = shop_ui.get_offer_teaser_lines(offer, limit=5)
+
     return templates.TemplateResponse(
         request=request,
         name="product_detail.html",
@@ -577,7 +640,125 @@ async def product_detail(
             "props": props,
             "grouped_props": grouped_props,
             "user": current_user,
+            "key_attrs": key_attrs,
+            "price_display": shop_ui.get_offer_price_display(offer),
         },
+    )
+
+
+@app.post("/cart/add")
+async def cart_add_item(
+    request: Request,
+    offer_id: int = Form(...),
+    quantity: int = Form(1),
+    redirect: Optional[str] = Form(None),
+):
+    cart = _cart_from_request(request)
+    cart = cart_cookie.cart_add(cart, offer_id, quantity)
+    dest = _safe_next_path(redirect, "/cart")
+    resp = RedirectResponse(url=dest, status_code=status.HTTP_303_SEE_OTHER)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    return resp
+
+
+@app.post("/cart/remove")
+async def cart_remove_item(
+    request: Request,
+    offer_id: int = Form(...),
+):
+    cart = _cart_from_request(request)
+    cart = cart_cookie.cart_remove(cart, offer_id)
+    resp = RedirectResponse(url="/cart", status_code=status.HTTP_303_SEE_OTHER)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    return resp
+
+
+@app.post("/cart/set-qty")
+async def cart_set_quantity(
+    request: Request,
+    offer_id: int = Form(...),
+    quantity: int = Form(...),
+):
+    cart = _cart_from_request(request)
+    cart = cart_cookie.cart_set_qty(cart, offer_id, quantity)
+    resp = RedirectResponse(url="/cart", status_code=status.HTTP_303_SEE_OTHER)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    return resp
+
+
+@app.get("/cart", response_class=HTMLResponse)
+async def cart_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    cart = _cart_from_request(request)
+    cart_lines: List[dict] = []
+    known_subtotal = 0.0
+    missing_price = False
+    missing_offers = 0
+
+    if cart:
+        ids = list(cart.keys())
+        stmt = (
+            select(ProductOffer)
+            .options(
+                selectinload(ProductOffer.company),
+                selectinload(ProductOffer.category),
+                selectinload(ProductOffer.properties).selectinload(
+                    ProductProperty.property_name
+                ),
+            )
+            .where(ProductOffer.offer_id.in_(ids))
+        )
+        offers = db.execute(stmt).scalars().all()
+        by_id = {o.offer_id: o for o in offers}
+        missing_offers = len(cart) - len(by_id)
+
+        for oid in ids:
+            offer = by_id.get(oid)
+            if offer is None:
+                continue
+            qty = cart[oid]
+            unit = shop_ui.get_offer_price_rub(offer)
+            line_total: Optional[float] = None
+            if unit is not None:
+                line_total = unit * qty
+                known_subtotal += line_total
+            else:
+                missing_price = True
+            cart_lines.append(
+                {
+                    "offer": offer,
+                    "qty": qty,
+                    "unit_rub": unit,
+                    "line_total_rub": line_total,
+                    "price_label": shop_ui.get_offer_price_display(offer),
+                }
+            )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="cart.html",
+        context={
+            "user": current_user,
+            "cart_lines": cart_lines,
+            "cart_subtotal_rub": known_subtotal if cart_lines else None,
+            "cart_missing_price": missing_price,
+            "cart_stale_count": missing_offers,
+        },
+    )
+
+
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(
+    request: Request,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="about.html",
+        context={"user": current_user},
     )
 
 
@@ -587,6 +768,49 @@ async def product_detail(
 
 def ensure_admin(user: Optional[User]) -> bool:
     return bool(user and user.is_active and user.is_superuser)
+
+
+@app.get("/admin/analytics", response_class=HTMLResponse)
+async def admin_analytics_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    days: int = Query(30, ge=1, le=366),
+    seeded: int = Query(0, ge=0, le=1),
+):
+    if not ensure_admin(current_user):
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    kpis = analytics.get_kpis(db, days=days)
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_analytics.html",
+        context={
+            "user": current_user,
+            "kpis": kpis,
+            "days": days,
+            "show_seeded_notice": bool(seeded),
+        },
+    )
+
+
+@app.post("/admin/analytics/seed-demo")
+async def admin_analytics_seed_demo(
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    if not ensure_admin(current_user):
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    db = SessionLocal()
+    try:
+        analytics.seed_demo_metrics(db)
+    finally:
+        db.close()
+
+    return RedirectResponse(
+        url="/admin/analytics?days=30&seeded=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get("/admin/normalization", response_class=HTMLResponse)
@@ -707,6 +931,7 @@ async def search_page(
         text_ranks = []
 
     merged_ids = rrf_merge(semantic_ranks, text_ranks, k=60, limit=500)
+    merged_ids = filter_offer_ids_by_query_tokens(db, merged_ids, q)
 
     total_offers = len(merged_ids)
     total_pages = max(1, (total_offers + page_size - 1) // page_size)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -206,6 +207,134 @@ def rrf_merge(
     return [oid for oid, _ in ordered[:limit]]
 
 
+_STOPWORDS_SEARCH = frozenset(
+    {
+        "и",
+        "в",
+        "во",
+        "не",
+        "на",
+        "я",
+        "с",
+        "со",
+        "как",
+        "а",
+        "то",
+        "все",
+        "она",
+        "так",
+        "его",
+        "но",
+        "да",
+        "ты",
+        "к",
+        "у",
+        "же",
+        "вы",
+        "за",
+        "бы",
+        "по",
+        "из",
+        "от",
+        "до",
+        "при",
+        "мне",
+        "мы",
+        "он",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "for",
+        "to",
+        "of",
+        "in",
+        "on",
+        "is",
+        "it",
+    }
+)
+
+
+def tokenize_search_query(q: str) -> List[str]:
+    """Слова и числа из запроса (нижний регистр), без короткого мусора и стоп-слов."""
+    q = (q or "").strip().lower()
+    if not q:
+        return []
+    parts = re.findall(r"\w+", q, flags=re.UNICODE)
+    out: List[str] = []
+    for p in parts:
+        if p in _STOPWORDS_SEARCH:
+            continue
+        if len(p) < 2 and not p.isdigit():
+            continue
+        if len(p) > 64:
+            continue
+        out.append(p)
+    return out
+
+
+def _compact_alnum(s: str) -> str:
+    return re.sub(r"[\s\-_\.]+", "", s, flags=re.UNICODE)
+
+
+def token_matches_in_offer_text(token: str, hay_lower: str) -> bool:
+    """
+    Числа — только как отдельное число (не подстрока внутри 194).
+    Слова — подстрока в hay или совпадение без пробелов/дефисов (GF63 ≈ GF-63).
+    """
+    if not token:
+        return True
+    if token.isdigit():
+        return (
+            re.search(r"(^|[^\d])" + re.escape(token) + r"([^\d]|$)", hay_lower) is not None
+        )
+    if token in hay_lower:
+        return True
+    if len(token) >= 2:
+        ct = _compact_alnum(token)
+        if ct and ct in _compact_alnum(hay_lower):
+            return True
+    return False
+
+
+def filter_offer_ids_by_query_tokens(
+    session: Session,
+    offer_ids: Sequence[int],
+    q: str,
+) -> List[int]:
+    """
+    Оставляет только офферы, в тексте которых есть все токены запроса.
+    Сохраняет порядок из `offer_ids`. Без токенов — возвращает список как есть.
+    """
+    tokens = tokenize_search_query(q)
+    if not tokens or not offer_ids:
+        return list(offer_ids)
+
+    stmt = (
+        select(ProductOffer)
+        .options(
+            selectinload(ProductOffer.company),
+            selectinload(ProductOffer.category),
+            selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
+        )
+        .where(ProductOffer.offer_id.in_(list(map(int, offer_ids))))
+    )
+    offers = session.execute(stmt).scalars().all()
+    by_id = {int(o.offer_id): o for o in offers}
+
+    out: List[int] = []
+    for oid in offer_ids:
+        o = by_id.get(int(oid))
+        if o is None:
+            continue
+        hay = build_offer_text(o).lower()
+        if all(token_matches_in_offer_text(t, hay) for t in tokens):
+            out.append(int(oid))
+    return out
+
+
 def fetch_offers_in_order(session: Session, offer_ids: Sequence[int]) -> List[ProductOffer]:
     if not offer_ids:
         return []
@@ -215,6 +344,7 @@ def fetch_offers_in_order(session: Session, offer_ids: Sequence[int]) -> List[Pr
             selectinload(ProductOffer.company),
             selectinload(ProductOffer.category),
             selectinload(ProductOffer.product),
+            selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
         )
         .where(ProductOffer.offer_id.in_(list(map(int, offer_ids))))
     )

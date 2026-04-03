@@ -1,10 +1,13 @@
 {% extends "base.html" %}
+{% block page_title %}Вход — MediaLux Shop{% endblock %}
 
 {% block content %}
-<h1>Вход в админку</h1>
+<div class="auth-card card">
+<h1>Вход</h1>
+<p class="page-header__meta">Для доступа к разделу нормализации каталога.</p>
 
 {% if error %}
-    <p style="color: red;">{{ error }}</p>
+    <p class="form-error" role="alert">{{ error }}</p>
 {% endif %}
 
 <form method="post" action="/login">
@@ -18,6 +21,7 @@
             <input type="password" name="password" required>
         </label>
     </div>
-    <button type="submit">Войти</button>
+    <button type="submit" class="btn btn--primary">Войти</button>
 </form>
+</div>
 {% endblock %}
