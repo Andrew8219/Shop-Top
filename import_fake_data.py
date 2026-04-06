@@ -128,7 +128,8 @@ def import_data(session: Session):
                 product_id=product_id,
                 company_id=company.company_id,
                 category_id=category.category_id,
-                short_name=item['short_name']
+                short_name=item['short_name'],
+                price_rub=item.get('price'),
             )
             session.add(offer)
             session.flush()
@@ -140,6 +141,16 @@ def import_data(session: Session):
                     offer_id=offer_id,
                     property_name_id=pname.property_name_id,
                     value=str(prop_value)
+                )
+                session.add(pp)
+
+            p = item.get("price")
+            if p is not None:
+                pname = get_or_create_property_name(session, "Цена")
+                pp = ProductProperty(
+                    offer_id=offer_id,
+                    property_name_id=pname.property_name_id,
+                    value=f"{int(round(float(p))):,}".replace(",", "\u00a0") + "\u00a0₽",
                 )
                 session.add(pp)
 

@@ -9,6 +9,7 @@
     --color-text-muted: #64748b;
     --color-border: #e2e8f0;
     --color-primary: #2563eb;
+    --color-price: #22c55e;
     --color-primary-hover: #1d4ed8;
     --color-primary-active: #1e40af;
     --color-secondary: #e2e8f0;
@@ -131,7 +132,7 @@ body.is-nav-loading {
 }
 
 .site-header__row--nav {
-    justify-content: center;
+    justify-content: flex-start;
     padding: 0.5rem 0 0.45rem;
 }
 
@@ -139,7 +140,7 @@ body.is-nav-loading {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.25rem 1.25rem;
 }
 
@@ -420,6 +421,14 @@ body.is-nav-loading {
     color: var(--color-text-muted);
 }
 
+/* «О магазине»: колонка по левому краю оболочки (как у логотипа), без «растягивания» на всю ширину */
+.about-page {
+    width: 100%;
+    max-width: 48rem;
+    margin-right: auto;
+    text-align: left;
+}
+
 .catalog-summary {
     margin: 0 0 1.25rem;
     color: var(--color-text-muted);
@@ -446,6 +455,77 @@ body.is-nav-loading {
     margin: 0;
     font-size: 0.95rem;
     color: var(--color-text-muted);
+}
+
+.catalog-filters {
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.15rem 1.1rem;
+}
+
+.catalog-filters__title {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.catalog-filters__form {
+    margin: 0;
+}
+
+.catalog-filters__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 0.75rem 1rem;
+    margin-bottom: 0.85rem;
+}
+
+@media (min-width: 720px) {
+    .catalog-filters__grid {
+        grid-template-columns: 1.2fr 1.2fr 0.65fr 0.65fr 1.1fr;
+    }
+}
+
+.catalog-filters__field--narrow {
+    min-width: 0;
+}
+
+.catalog-filters__label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.catalog-filters__control {
+    width: 100%;
+    min-height: var(--touch-min);
+    padding: 0.45rem 0.6rem;
+    font-size: 0.95rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.catalog-filters__control:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.catalog-filters__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.catalog-filters__note {
+    margin: 0.65rem 0 0;
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    max-width: 40rem;
 }
 
 /* Каталог: столько колонок, сколько помещается (обычно 3–4 на десктопе) */
@@ -519,7 +599,7 @@ body.is-nav-loading {
     margin: 0;
     font-size: 1.15rem;
     font-weight: 700;
-    color: var(--color-primary);
+    color: var(--color-price);
 }
 
 .product-card__price--muted {
@@ -736,7 +816,7 @@ body.is-nav-loading {
     margin: 0 0 1rem;
     font-size: 1.5rem;
     font-weight: 800;
-    color: var(--color-primary);
+    color: var(--color-price);
 }
 
 .product-hero__price--muted {
@@ -1272,6 +1352,12 @@ input[type="search"] {
 .cart-summary__line {
     margin: 0 0 0.5rem;
     font-size: 1rem;
+}
+
+.cart-summary__line--total {
+    font-size: 1.15rem;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
 }
 
 .cart-summary__note {

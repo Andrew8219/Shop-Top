@@ -1,15 +1,15 @@
 {
   "task5": {
     "semantic_only": {
-      "Recall@5": 0.6717,
-      "Recall@10": 0.8719,
-      "Recall@20": 0.985,
-      "MRR@5": 0.7567,
-      "MRR@10": 0.7567,
-      "MRR@20": 0.7567,
-      "nDCG@5": 0.7029,
-      "nDCG@10": 0.7796,
-      "nDCG@20": 0.835
+      "Recall@5": 0.6667,
+      "Recall@10": 0.8749,
+      "Recall@20": 0.98,
+      "MRR@5": 0.7433,
+      "MRR@10": 0.7433,
+      "MRR@20": 0.7433,
+      "nDCG@5": 0.6959,
+      "nDCG@10": 0.7737,
+      "nDCG@20": 0.8255
     },
     "text_only": {
       "Recall@5": 0.3664,
@@ -18,88 +18,1400 @@
       "MRR@5": 0.4267,
       "MRR@10": 0.4267,
       "MRR@20": 0.4293,
-      "nDCG@5": 0.4235,
-      "nDCG@10": 0.4413,
-      "nDCG@20": 0.4705
+      "nDCG@5": 0.422,
+      "nDCG@10": 0.4398,
+      "nDCG@20": 0.469
     },
-    "hybrid_rrf": {
-      "Recall@5": 0.704,
-      "Recall@10": 0.8769,
-      "Recall@20": 0.975,
+    "hybrid_rrf_nofilter": {
+      "Recall@5": 0.6883,
+      "Recall@10": 0.8849,
+      "Recall@20": 0.965,
       "MRR@5": 0.81,
       "MRR@10": 0.81,
       "MRR@20": 0.81,
-      "nDCG@5": 0.7617,
-      "nDCG@10": 0.8142,
-      "nDCG@20": 0.8616
+      "nDCG@5": 0.7489,
+      "nDCG@10": 0.8157,
+      "nDCG@20": 0.8545
+    },
+    "hybrid_rrf": {
+      "Recall@5": 0.3378,
+      "Recall@10": 0.4669,
+      "Recall@20": 0.521,
+      "MRR@5": 0.4367,
+      "MRR@10": 0.4367,
+      "MRR@20": 0.4367,
+      "nDCG@5": 0.3938,
+      "nDCG@10": 0.4334,
+      "nDCG@20": 0.4608
     }
   },
+  "task7": {
+    "title": "Задача 7 — оценка эффективности поиска",
+    "methodology_file": "evaluation/task7_methodology.md",
+    "generated_at_utc": "2026-04-04T11:08:55.093178+00:00",
+    "dataset": {
+      "path": "evaluation/task5_queries.json",
+      "num_queries": 25
+    },
+    "experiment": {
+      "embedding_model": "intfloat/multilingual-e5-small",
+      "semantic_top_k": 100,
+      "text_top_k": 100,
+      "rrf_k": 60,
+      "rrf_candidate_limit": 100,
+      "post_filter_tokens": true,
+      "modes": {
+        "semantic_only": "FAISS/pgvector, только семантика",
+        "text_only": "PostgreSQL tsvector + websearch_to_tsquery",
+        "hybrid_rrf_nofilter": "RRF(semantic, text), без постфильтра по токенам",
+        "hybrid_rrf": "RRF + постфильтр (все токены запроса в тексте оффера)"
+      }
+    },
+    "per_query": [
+      {
+        "id": "q01",
+        "query": "samsung galaxy a54 смартфон",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q02",
+        "query": "sony wh 1000xm5 наушники",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q03",
+        "query": "macbook air m2",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          }
+        }
+      },
+      {
+        "id": "q04",
+        "query": "delonghi magnifica кофемашина",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q05",
+        "query": "nike air max 270 кроссовки",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q06",
+        "query": "macbook pro",
+        "num_relevant": 4,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.5,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3462,
+            "Recall@10": 0.75,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.4637,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.5726
+          },
+          "text_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.5,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.6367,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9059,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9059
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.5,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.6367,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9059,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9059
+          }
+        }
+      },
+      {
+        "id": "q07",
+        "query": "hp pavilion ноутбук",
+        "num_relevant": 11,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.1818,
+            "MRR@5": 0.25,
+            "nDCG@5": 0.2773,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.25,
+            "nDCG@10": 0.531,
+            "Recall@20": 1.0,
+            "MRR@20": 0.25,
+            "nDCG@20": 0.7146
+          },
+          "text_only": {
+            "Recall@5": 0.2727,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.4469,
+            "Recall@10": 0.7273,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.641,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.761
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.2727,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.4469,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.5626,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.7462
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.2727,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.4469,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.5626,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.7462
+          }
+        }
+      },
+      {
+        "id": "q08",
+        "query": "acer aspire",
+        "num_relevant": 7,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          }
+        }
+      },
+      {
+        "id": "q09",
+        "query": "huawei matebook",
+        "num_relevant": 8,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.5,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8539,
+            "Recall@10": 0.75,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8031,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.942
+          },
+          "text_only": {
+            "Recall@5": 0.625,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 0.875,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9202,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9834
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.5,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8688,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9671,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9671
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.5,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8688,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9671,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9671
+          }
+        }
+      },
+      {
+        "id": "q10",
+        "query": "samsung galaxy book",
+        "num_relevant": 2,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8503,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8503,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.8503
+          },
+          "text_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          }
+        }
+      },
+      {
+        "id": "q11",
+        "query": "msi stealth",
+        "num_relevant": 5,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          }
+        }
+      },
+      {
+        "id": "q12",
+        "query": "dell inspiron",
+        "num_relevant": 8,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.25,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3008,
+            "Recall@10": 0.75,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.548,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.6763
+          },
+          "text_only": {
+            "Recall@5": 0.5,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.6608,
+            "Recall@10": 0.875,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.7471,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.8103
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.375,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.5296,
+            "Recall@10": 0.875,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.7142,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.776
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.375,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.5296,
+            "Recall@10": 0.875,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.7142,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.776
+          }
+        }
+      },
+      {
+        "id": "q13",
+        "query": "lg gram",
+        "num_relevant": 4,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.5,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3462,
+            "Recall@10": 1.0,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.6154,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.6154
+          },
+          "text_only": {
+            "Recall@5": 0.75,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8319,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.962,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.962
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.75,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.7366,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8667,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.8667
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.75,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.7366,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8667,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.8667
+          }
+        }
+      },
+      {
+        "id": "q14",
+        "query": "asus vivobook",
+        "num_relevant": 2,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.6509,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.6509,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.6509
+          },
+          "text_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.6934,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.6934,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.6934
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.6934,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.6934,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.6934
+          },
+          "hybrid_rrf": {
+            "Recall@5": 1.0,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.6934,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.6934,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.6934
+          }
+        }
+      },
+      {
+        "id": "q15",
+        "query": "thinkpad lenovo",
+        "num_relevant": 4,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.75,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.5925,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.7316,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.7316
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.75,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.5925,
+            "Recall@10": 1.0,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.7316,
+            "Recall@20": 1.0,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.7316
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q16",
+        "query": "игровой ноутбук msi",
+        "num_relevant": 5,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.8,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8688,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9896,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9896
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.8,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.8688,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9896,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9896
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q17",
+        "query": "ультрабук lg",
+        "num_relevant": 4,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.5,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3633,
+            "Recall@10": 1.0,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.6325,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.6325
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.5,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3633,
+            "Recall@10": 1.0,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.6325,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.6325
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q18",
+        "query": "ноутбук dell",
+        "num_relevant": 8,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.25,
+            "MRR@5": 0.25,
+            "nDCG@5": 0.2773,
+            "Recall@10": 0.75,
+            "MRR@10": 0.25,
+            "nDCG@10": 0.5202,
+            "Recall@20": 1.0,
+            "MRR@20": 0.25,
+            "nDCG@20": 0.6473
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.625,
+            "MRR@20": 0.0667,
+            "nDCG@20": 0.2996
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.125,
+            "MRR@5": 0.25,
+            "nDCG@5": 0.1461,
+            "Recall@10": 0.25,
+            "MRR@10": 0.25,
+            "nDCG@10": 0.1887,
+            "Recall@20": 0.625,
+            "MRR@20": 0.25,
+            "nDCG@20": 0.3766
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.125,
+            "MRR@5": 0.25,
+            "nDCG@5": 0.1461,
+            "Recall@10": 0.25,
+            "MRR@10": 0.25,
+            "nDCG@10": 0.1887,
+            "Recall@20": 0.625,
+            "MRR@20": 0.25,
+            "nDCG@20": 0.3766
+          }
+        }
+      },
+      {
+        "id": "q19",
+        "query": "ноутбук hp pavilion",
+        "num_relevant": 11,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.1818,
+            "MRR@5": 0.25,
+            "nDCG@5": 0.2773,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.25,
+            "nDCG@10": 0.531,
+            "Recall@20": 1.0,
+            "MRR@20": 0.25,
+            "nDCG@20": 0.7164
+          },
+          "text_only": {
+            "Recall@5": 0.2727,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.4469,
+            "Recall@10": 0.7273,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.641,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.761
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.1818,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3156,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.5559,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.741
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.1818,
+            "MRR@5": 0.3333,
+            "nDCG@5": 0.3156,
+            "Recall@10": 0.6364,
+            "MRR@10": 0.3333,
+            "nDCG@10": 0.5559,
+            "Recall@20": 1.0,
+            "MRR@20": 0.3333,
+            "nDCG@20": 0.741
+          }
+        }
+      },
+      {
+        "id": "q20",
+        "query": "apple macbook",
+        "num_relevant": 5,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.2,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.3392,
+            "Recall@10": 0.6,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.5503,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.7143
+          },
+          "text_only": {
+            "Recall@5": 0.4,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.4704,
+            "Recall@10": 0.4,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.4704,
+            "Recall@20": 0.4,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.4704
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.4,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.4704,
+            "Recall@10": 0.6,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.5684,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.7324
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.4,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.4704,
+            "Recall@10": 0.4,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.4704,
+            "Recall@20": 0.4,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.4704
+          }
+        }
+      },
+      {
+        "id": "q21",
+        "query": "matebook huawei ноутбук",
+        "num_relevant": 8,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.625,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 0.75,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8189,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9578
+          },
+          "text_only": {
+            "Recall@5": 0.625,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 0.875,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9202,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9834
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.625,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 0.875,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9099,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9763
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.625,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 0.875,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.9099,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.9763
+          }
+        }
+      },
+      {
+        "id": "q22",
+        "query": "acer laptop",
+        "num_relevant": 7,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.7143,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q23",
+        "query": "thinkpad business notebook",
+        "num_relevant": 4,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.75,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.7095,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8486,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.8486
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.75,
+            "MRR@5": 1.0,
+            "nDCG@5": 0.7095,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 0.8486,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 0.8486
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q24",
+        "query": "samsung laptop",
+        "num_relevant": 8,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 0.25,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.3452,
+            "Recall@10": 0.25,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.2574,
+            "Recall@20": 0.5,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.3776
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 0.25,
+            "MRR@5": 0.5,
+            "nDCG@5": 0.3452,
+            "Recall@10": 0.25,
+            "MRR@10": 0.5,
+            "nDCG@10": 0.2574,
+            "Recall@20": 0.5,
+            "MRR@20": 0.5,
+            "nDCG@20": 0.3776
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      },
+      {
+        "id": "q25",
+        "query": "кофе машина delonghi",
+        "num_relevant": 1,
+        "metrics": {
+          "semantic_only": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "text_only": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          },
+          "hybrid_rrf_nofilter": {
+            "Recall@5": 1.0,
+            "MRR@5": 1.0,
+            "nDCG@5": 1.0,
+            "Recall@10": 1.0,
+            "MRR@10": 1.0,
+            "nDCG@10": 1.0,
+            "Recall@20": 1.0,
+            "MRR@20": 1.0,
+            "nDCG@20": 1.0
+          },
+          "hybrid_rrf": {
+            "Recall@5": 0.0,
+            "MRR@5": 0.0,
+            "nDCG@5": 0.0,
+            "Recall@10": 0.0,
+            "MRR@10": 0.0,
+            "nDCG@10": 0.0,
+            "Recall@20": 0.0,
+            "MRR@20": 0.0,
+            "nDCG@20": 0.0
+          }
+        }
+      }
+    ]
+  },
   "task23": {
+    "dry_run": false,
     "task2_filter_quality": {
       "coverage": 1.0,
       "duplicates_ratio": 0.0513,
-      "consistency": 0.2817
+      "consistency": 0.3313
     },
     "task3_category_before": [
       {
         "category": "Ноутбуки",
         "offers": 100.0,
-        "avg_values_per_property": 4.9,
-        "weighted_mode_ratio": 0.335
+        "avg_values_per_property": 4.3,
+        "weighted_mode_ratio": 0.42
       },
       {
         "category": "Смартфоны",
         "offers": 100.0,
-        "avg_values_per_property": 4.1818,
-        "weighted_mode_ratio": 0.3264
+        "avg_values_per_property": 4.0909,
+        "weighted_mode_ratio": 0.3445
       },
       {
         "category": "Телевизоры",
         "offers": 100.0,
-        "avg_values_per_property": 4.1111,
-        "weighted_mode_ratio": 0.3067
+        "avg_values_per_property": 4.0,
+        "weighted_mode_ratio": 0.3233
       },
       {
         "category": "Наушники",
         "offers": 100.0,
-        "avg_values_per_property": 3.8889,
-        "weighted_mode_ratio": 0.3578
+        "avg_values_per_property": 3.2222,
+        "weighted_mode_ratio": 0.4844
       },
       {
         "category": "Холодильники",
         "offers": 100.0,
-        "avg_values_per_property": 4.3,
-        "weighted_mode_ratio": 0.328
+        "avg_values_per_property": 4.2,
+        "weighted_mode_ratio": 0.353
       },
       {
         "category": "Стиральные машины",
         "offers": 100.0,
-        "avg_values_per_property": 3.5,
-        "weighted_mode_ratio": 0.384
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.484
       },
       {
         "category": "Фотоаппараты",
         "offers": 100.0,
-        "avg_values_per_property": 4.7,
-        "weighted_mode_ratio": 0.308
+        "avg_values_per_property": 4.3,
+        "weighted_mode_ratio": 0.391
       },
       {
         "category": "Планшеты",
         "offers": 100.0,
-        "avg_values_per_property": 4.7778,
-        "weighted_mode_ratio": 0.2833
+        "avg_values_per_property": 4.5556,
+        "weighted_mode_ratio": 0.3244
       },
       {
         "category": "Умные часы",
         "offers": 100.0,
-        "avg_values_per_property": 3.5,
-        "weighted_mode_ratio": 0.379
+        "avg_values_per_property": 3.0,
+        "weighted_mode_ratio": 0.463
       },
       {
         "category": "Пылесосы",
         "offers": 100.0,
-        "avg_values_per_property": 4.2,
-        "weighted_mode_ratio": 0.346
+        "avg_values_per_property": 3.9,
+        "weighted_mode_ratio": 0.384
       },
       {
         "category": "Электроника",
@@ -136,8 +1448,8 @@
       {
         "category": "Ноутбуки",
         "offers": 100.0,
-        "avg_values_per_property": 4.4,
-        "weighted_mode_ratio": 0.408
+        "avg_values_per_property": 4.3,
+        "weighted_mode_ratio": 0.42
       },
       {
         "category": "Смартфоны",
@@ -172,8 +1484,8 @@
       {
         "category": "Фотоаппараты",
         "offers": 100.0,
-        "avg_values_per_property": 4.4,
-        "weighted_mode_ratio": 0.351
+        "avg_values_per_property": 4.3,
+        "weighted_mode_ratio": 0.391
       },
       {
         "category": "Планшеты",
@@ -190,8 +1502,8 @@
       {
         "category": "Пылесосы",
         "offers": 100.0,
-        "avg_values_per_property": 4.1,
-        "weighted_mode_ratio": 0.362
+        "avg_values_per_property": 3.9,
+        "weighted_mode_ratio": 0.384
       },
       {
         "category": "Электроника",
@@ -224,6 +1536,6 @@
         "weighted_mode_ratio": 1.0
       }
     ],
-    "task3_values_updated": 572
+    "task3_values_updated": 0
   }
 }

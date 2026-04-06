@@ -4,7 +4,7 @@
 """
 
 import os
-from sqlalchemy import create_engine, func, Column, Integer, BigInteger, Text, Float, ForeignKey
+from sqlalchemy import create_engine, func, Column, Integer, BigInteger, Text, Float, ForeignKey, Numeric
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func as sql_func
 
@@ -39,6 +39,7 @@ class ProductOffer(Base):
     company_id = Column(Integer, nullable=False)
     category_id = Column(BigInteger, nullable=True)
     short_name = Column(Text, nullable=True)
+    price_rub = Column(Numeric(12, 2), nullable=True)
 
 
 class PropertyName(Base):

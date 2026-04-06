@@ -1,24 +1,26 @@
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+import os
 import threading
 import uuid
 import logging
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
+from urllib.parse import urlencode
 
 from fastapi import (
-    FastAPI,
     Depends,
-    Request,
+    FastAPI,
     Form,
-    status,
     Query,
+    Request,
+    status,
 )
     # noqa
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request as StarletteRequest
-from sqlalchemy import select, func
+from sqlalchemy import and_, asc, desc, func, nulls_last, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from jose import JWTError, jwt
@@ -26,6 +28,8 @@ from passlib.context import CryptContext
 
 from db import SessionLocal, Base, engine
 from models import (
+    Category,
+    Company,
     ProductOffer,
     ProductProperty,
     User,
@@ -166,7 +170,88 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 #   БАЗА / FASTAPI
 # =====================
 
+
+def _ensure_product_offers_price_rub() -> None:
+    """create_all не добавляет колонки к уже существующим таблицам — только ALTER."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE product_offers "
+                "ADD COLUMN IF NOT EXISTS price_rub NUMERIC(12, 2)"
+            )
+        )
+
+
+def _backfill_product_offers_prices() -> None:
+    """
+    Старые строки после ADD COLUMN имеют price_rub = NULL — витрина показывает «по запросу».
+    1) Пытаемся взять число из характеристик вроде «Цена».
+    2) Если в таблице по-прежнему нет ни одной цены — заполняем детерминированно по offer_id (демо).
+       Отключить: MEDIALUX_SKIP_DEMO_PRICE_BACKFILL=1
+    """
+    if engine.dialect.name != "postgresql":
+        return
+    skip_demo = os.getenv("MEDIALUX_SKIP_DEMO_PRICE_BACKFILL", "").strip() == "1"
+    db = SessionLocal()
+    try:
+        total = db.execute(select(func.count()).select_from(ProductOffer)).scalar() or 0
+        if total == 0:
+            return
+
+        stmt_null = (
+            select(ProductOffer)
+            .where(ProductOffer.price_rub.is_(None))
+            .options(
+                selectinload(ProductOffer.properties).selectinload(
+                    ProductProperty.property_name
+                ),
+            )
+        )
+        for offer in db.execute(stmt_null).scalars().unique().all():
+            for p in offer.properties or []:
+                if not shop_ui.is_price_property(p):
+                    continue
+                n = shop_ui.parse_price_rub_numeric((p.value or "").strip())
+                if n is not None:
+                    offer.price_rub = n
+                    break
+        db.commit()
+
+        priced = (
+            db.execute(
+                select(func.count())
+                .select_from(ProductOffer)
+                .where(ProductOffer.price_rub.isnot(None))
+            ).scalar()
+            or 0
+        )
+        if priced > 0 or skip_demo:
+            return
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE product_offers SET price_rub = "
+                    "(500 + MOD(offer_id * 7919, 95000))::numeric "
+                    "WHERE price_rub IS NULL"
+                )
+            )
+        LOG.info(
+            "Заполнены демо-цены price_rub (в таблице не было ни одной цены). "
+            "Отключение: MEDIALUX_SKIP_DEMO_PRICE_BACKFILL=1"
+        )
+    except Exception:
+        LOG.exception("Ошибка backfill price_rub")
+        db.rollback()
+    finally:
+        db.close()
+
+
 Base.metadata.create_all(bind=engine)
+_ensure_product_offers_price_rub()
+_backfill_product_offers_prices()
 
 app = FastAPI(title="MediaLux Shop")
 
@@ -520,6 +605,161 @@ def run_search_index_job(job_id: str) -> None:
 
 
 # =====================
+#   КАТАЛОГ: ФИЛЬТРЫ / СОРТИРОВКА
+# =====================
+
+
+def _normalize_catalog_sort(sort: str) -> str:
+    if sort in ("price_asc", "price_desc"):
+        return sort
+    return ""
+
+
+def _parse_query_optional_int_ge1(raw: Optional[str]) -> Optional[int]:
+    """HTML-форма шлёт пустые поля как \"\"; FastAPI иначе падает на int."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "":
+        return None
+    try:
+        v = int(text)
+    except ValueError:
+        return None
+    return v if v >= 1 else None
+
+
+def _parse_query_optional_float_nonneg(raw: Optional[str]) -> Optional[float]:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "":
+        return None
+    try:
+        v = float(text.replace(",", "."))
+    except ValueError:
+        return None
+    return v if v >= 0 else None
+
+
+def _normalize_price_bounds(
+    price_min: Optional[float], price_max: Optional[float]
+) -> Tuple[Optional[float], Optional[float]]:
+    if price_min is not None and price_max is not None and price_min > price_max:
+        return price_max, price_min
+    return price_min, price_max
+
+
+def _catalog_filter_clauses(
+    company_id: Optional[int],
+    category_id: Optional[int],
+    price_min: Optional[float],
+    price_max: Optional[float],
+) -> List:
+    clauses = []
+    if company_id is not None and company_id > 0:
+        clauses.append(ProductOffer.company_id == company_id)
+    if category_id is not None and category_id > 0:
+        clauses.append(ProductOffer.category_id == category_id)
+    if price_min is not None or price_max is not None:
+        clauses.append(ProductOffer.price_rub.isnot(None))
+    if price_min is not None:
+        clauses.append(ProductOffer.price_rub >= price_min)
+    if price_max is not None:
+        clauses.append(ProductOffer.price_rub <= price_max)
+    return clauses
+
+
+def _catalog_order_by(sort: str):
+    if sort == "price_asc":
+        return (
+            nulls_last(asc(ProductOffer.price_rub)),
+            asc(ProductOffer.offer_id),
+        )
+    if sort == "price_desc":
+        return (
+            nulls_last(desc(ProductOffer.price_rub)),
+            asc(ProductOffer.offer_id),
+        )
+    return (asc(ProductOffer.offer_id),)
+
+
+def _listing_qs_no_page(
+    *,
+    is_search: bool,
+    q: str,
+    company_id: Optional[int],
+    category_id: Optional[int],
+    price_min: Optional[float],
+    price_max: Optional[float],
+    sort: str,
+) -> str:
+    parts: Dict[str, object] = {}
+    if is_search and q:
+        parts["q"] = q
+    if company_id is not None and company_id > 0:
+        parts["company_id"] = company_id
+    if category_id is not None and category_id > 0:
+        parts["category_id"] = category_id
+    if price_min is not None:
+        parts["price_min"] = price_min
+    if price_max is not None:
+        parts["price_max"] = price_max
+    if sort:
+        parts["sort"] = sort
+    return urlencode(parts, doseq=True)
+
+
+def _filter_search_offer_ids(
+    db: Session,
+    merged_ids: List[int],
+    company_id: Optional[int],
+    category_id: Optional[int],
+    price_min: Optional[float],
+    price_max: Optional[float],
+) -> List[int]:
+    if not merged_ids:
+        return []
+    extra = _catalog_filter_clauses(company_id, category_id, price_min, price_max)
+    if not extra:
+        return list(merged_ids)
+    stmt = select(ProductOffer.offer_id).where(
+        and_(ProductOffer.offer_id.in_(list(map(int, merged_ids))), *extra)
+    )
+    allowed = set(db.execute(stmt).scalars().all())
+    return [oid for oid in merged_ids if oid in allowed]
+
+
+def _sort_offer_ids_by_price(db: Session, ids: List[int], sort: str) -> List[int]:
+    if sort not in ("price_asc", "price_desc") or not ids:
+        return ids
+    stmt = select(ProductOffer.offer_id, ProductOffer.price_rub).where(
+        ProductOffer.offer_id.in_(list(map(int, ids)))
+    )
+    price_map = {int(r[0]): r[1] for r in db.execute(stmt).all()}
+
+    def key_asc(oid: int):
+        p = price_map.get(int(oid))
+        if p is None:
+            return (True, 0.0)
+        return (False, float(p))
+
+    def key_desc(oid: int):
+        p = price_map.get(int(oid))
+        if p is None:
+            return (True, 0.0)
+        return (False, -float(p))
+
+    return sorted(ids, key=key_asc if sort == "price_asc" else key_desc)
+
+
+def _load_catalog_filter_lookups(db: Session) -> Tuple[List[Company], List[Category]]:
+    companies = db.execute(select(Company).order_by(Company.name)).scalars().all()
+    categories = db.execute(select(Category).order_by(Category.name)).scalars().all()
+    return companies, categories
+
+
+# =====================
 #   МАГАЗИН (публичная часть)
 # =====================
 
@@ -529,10 +769,30 @@ async def index(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user),
     page: int = Query(1, ge=1),
+    company_id_q: Optional[str] = Query(None, alias="company_id"),
+    category_id_q: Optional[str] = Query(None, alias="category_id"),
+    price_min_q: Optional[str] = Query(None, alias="price_min"),
+    price_max_q: Optional[str] = Query(None, alias="price_max"),
+    sort: str = Query(""),
 ):
     page_size = 100
+    sort = _normalize_catalog_sort(sort)
+    company_id = _parse_query_optional_int_ge1(company_id_q)
+    category_id = _parse_query_optional_int_ge1(category_id_q)
+    price_min, price_max = _normalize_price_bounds(
+        _parse_query_optional_float_nonneg(price_min_q),
+        _parse_query_optional_float_nonneg(price_max_q),
+    )
 
-    total_offers = db.execute(select(func.count()).select_from(ProductOffer)).scalar() or 0
+    clauses = _catalog_filter_clauses(company_id, category_id, price_min, price_max)
+    where = and_(*clauses) if clauses else None
+
+    count_stmt = select(func.count()).select_from(ProductOffer)
+    if where is not None:
+        count_stmt = count_stmt.where(where)
+    total_offers = db.execute(count_stmt).scalar() or 0
+
+    companies, categories = _load_catalog_filter_lookups(db)
 
     if total_offers == 0:
         offers = []
@@ -554,14 +814,31 @@ async def index(
                 selectinload(ProductOffer.product),
                 selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
             )
-            .order_by(ProductOffer.offer_id)
-            .offset(offset)
-            .limit(page_size)
         )
+        if where is not None:
+            stmt = stmt.where(where)
+        stmt = stmt.order_by(*_catalog_order_by(sort)).offset(offset).limit(page_size)
         offers = db.execute(stmt).scalars().all()
 
         from_item = offset + 1
         to_item = offset + len(offers)
+
+    listing_qs_no_page = _listing_qs_no_page(
+        is_search=False,
+        q="",
+        company_id=company_id,
+        category_id=category_id,
+        price_min=price_min,
+        price_max=price_max,
+        sort=sort,
+    )
+    filters_active = bool(
+        (company_id and company_id > 0)
+        or (category_id and category_id > 0)
+        or price_min is not None
+        or price_max is not None
+        or sort
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -576,6 +853,15 @@ async def index(
             "to_item": to_item,
             "q": "",
             "is_search": False,
+            "companies": companies,
+            "categories": categories,
+            "filter_company_id": company_id or 0,
+            "filter_category_id": category_id or 0,
+            "filter_price_min": price_min,
+            "filter_price_max": price_max,
+            "filter_sort": sort,
+            "listing_qs_no_page": listing_qs_no_page,
+            "filters_active": filters_active,
         },
     )
 
@@ -737,14 +1023,19 @@ async def cart_page(
                 }
             )
 
+    priced_in_cart = sum(1 for row in cart_lines if row.get("unit_rub") is not None)
+    cart_fully_priced = bool(cart_lines) and priced_in_cart == len(cart_lines) and not missing_price
+    cart_subtotal_rub = known_subtotal if priced_in_cart else None
+
     return templates.TemplateResponse(
         request=request,
         name="cart.html",
         context={
             "user": current_user,
             "cart_lines": cart_lines,
-            "cart_subtotal_rub": known_subtotal if cart_lines else None,
+            "cart_subtotal_rub": cart_subtotal_rub,
             "cart_missing_price": missing_price,
+            "cart_fully_priced": cart_fully_priced,
             "cart_stale_count": missing_offers,
         },
     )
@@ -908,9 +1199,21 @@ async def search_page(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user),
     page: int = Query(1, ge=1),
+    company_id_q: Optional[str] = Query(None, alias="company_id"),
+    category_id_q: Optional[str] = Query(None, alias="category_id"),
+    price_min_q: Optional[str] = Query(None, alias="price_min"),
+    price_max_q: Optional[str] = Query(None, alias="price_max"),
+    sort: str = Query(""),
 ):
     q = (q or "").strip()
     page_size = 50
+    sort = _normalize_catalog_sort(sort)
+    company_id = _parse_query_optional_int_ge1(company_id_q)
+    category_id = _parse_query_optional_int_ge1(category_id_q)
+    price_min, price_max = _normalize_price_bounds(
+        _parse_query_optional_float_nonneg(price_min_q),
+        _parse_query_optional_float_nonneg(price_max_q),
+    )
 
     if not q:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
@@ -932,6 +1235,10 @@ async def search_page(
 
     merged_ids = rrf_merge(semantic_ranks, text_ranks, k=60, limit=500)
     merged_ids = filter_offer_ids_by_query_tokens(db, merged_ids, q)
+    merged_ids = _filter_search_offer_ids(
+        db, merged_ids, company_id, category_id, price_min, price_max
+    )
+    merged_ids = _sort_offer_ids_by_price(db, merged_ids, sort)
 
     total_offers = len(merged_ids)
     total_pages = max(1, (total_offers + page_size - 1) // page_size)
@@ -944,6 +1251,24 @@ async def search_page(
 
     from_item = offset + 1 if offers else 0
     to_item = offset + len(offers)
+
+    companies, categories = _load_catalog_filter_lookups(db)
+    listing_qs_no_page = _listing_qs_no_page(
+        is_search=True,
+        q=q,
+        company_id=company_id,
+        category_id=category_id,
+        price_min=price_min,
+        price_max=price_max,
+        sort=sort,
+    )
+    filters_active = bool(
+        (company_id and company_id > 0)
+        or (category_id and category_id > 0)
+        or price_min is not None
+        or price_max is not None
+        or sort
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -958,6 +1283,15 @@ async def search_page(
             "to_item": to_item,
             "q": q,
             "is_search": True,
+            "companies": companies,
+            "categories": categories,
+            "filter_company_id": company_id or 0,
+            "filter_category_id": category_id or 0,
+            "filter_price_min": price_min,
+            "filter_price_max": price_max,
+            "filter_sort": sort,
+            "listing_qs_no_page": listing_qs_no_page,
+            "filters_active": filters_active,
         },
     )
 

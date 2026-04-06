@@ -27,3 +27,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 После сборки можно искать:
 
 - `GET /search?q=...`
+
+### Оценка эффективности (задача 7 ВКР)
+
+Скрипт `evaluate_vkr.py` считает Recall@K, MRR@K, nDCG@K на наборе `evaluation/task5_queries.json`, сравнивает режимы **semantic_only**, **text_only**, **hybrid_rrf_nofilter** (RRF без постфильтра) и **hybrid_rrf** (как на витрине). Методология: `evaluation/task7_methodology.md`. Отчёты: `evaluation/reports/vkr_metrics.md` и `.json`.
+
+```bash
+python evaluate_vkr.py
+python evaluate_vkr.py --dry-run
+python evaluate_vkr.py --task7-only
+```

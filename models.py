@@ -58,6 +58,8 @@ class ProductOffer(Base):
         nullable=True,
     )
     short_name = Column(Text, nullable=True)
+    # Основная цена в рублях (для витрины и суммы в корзине); при NULL можно подставить цену из характеристик.
+    price_rub = Column(Numeric(12, 2), nullable=True)
 
     product = relationship("Product", back_populates="offers")
     company = relationship("Company", back_populates="offers")

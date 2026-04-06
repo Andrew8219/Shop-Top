@@ -5,7 +5,7 @@
 <div class="page-hero page-hero--narrow">
     <h1>Корзина</h1>
     <p class="page-hero__lead">
-        Товары хранятся в браузере (подписанная cookie). Оформление заказа и оплата пока не подключены — демо для ВКР.
+        Товары хранятся в браузере (подписанная cookie). Оформление заказа и оплата пока не подключены — демо.
     </p>
 </div>
 
@@ -72,14 +72,19 @@
 </div>
 
 <div class="cart-summary card card--muted">
-    {% if cart_subtotal_rub is not none %}
+    {% if cart_fully_priced %}
+        <p class="cart-summary__line cart-summary__line--total">
+            <strong>Итого:</strong>
+            {{ "%.2f"|format(cart_subtotal_rub) }}&nbsp;₽
+        </p>
+    {% elif cart_subtotal_rub is not none %}
         <p class="cart-summary__line">
-            <strong>Сумма по позициям с указанной ценой:</strong>
+            <strong>Сумма по позициям с ценой:</strong>
             {{ "%.2f"|format(cart_subtotal_rub) }}&nbsp;₽
         </p>
     {% endif %}
     {% if cart_missing_price %}
-        <p class="cart-summary__note">Часть товаров без числовой цены в данных — итог по ним не считается.</p>
+        <p class="cart-summary__note">Часть товаров без цены в каталоге — в итог не входят. Укажите цену в карточке товара (поле в базе или характеристика «Цена»).</p>
     {% endif %}
 </div>
 

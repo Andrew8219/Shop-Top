@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block page_title %}{% if q %}Поиск: {{ q }} — {% endif %}Каталог — MediaLux Shop{% endblock %}
 
+{% macro listing_href(page_num) -%}
+{% if is_search %}/search{% else %}/{% endif %}?{% if listing_qs_no_page %}{{ listing_qs_no_page }}&amp;{% endif %}page={{ page_num }}
+{%- endmacro %}
+
 {% block content %}
 <div class="catalog-intro">
     <div class="page-header page-header--in-intro">
@@ -10,7 +14,7 @@
             <p class="page-header__meta page-header__hint">Из результатов поиска остаются только товары, в которых встречаются <strong>все</strong> слова и числа из запроса (в названии или характеристиках).</p>
         {% else %}
             <p class="page-header__meta page-header__hint">
-                Подсказка: воспользуйтесь поиском в шапке — поддерживается гибридный поиск (смысл + ключевые слова).
+                Фильтры ниже: компания, категория (ноутбуки, телевизоры и др. из базы), диапазон цены и сортировка. Поиск — в шапке сайта.
             </p>
         {% endif %}
     </div>
@@ -21,6 +25,60 @@
         </p>
     {% endif %}
 </div>
+
+<section class="catalog-filters card" aria-label="Фильтры каталога">
+    <h2 class="catalog-filters__title">Фильтры и сортировка</h2>
+    <form method="get" class="catalog-filters__form" action="{% if is_search %}/search{% else %}/{% endif %}">
+        {% if is_search %}
+        <input type="hidden" name="q" value="{{ q|e }}">
+        {% endif %}
+        <div class="catalog-filters__grid">
+            <div class="catalog-filters__field">
+                <label class="catalog-filters__label" for="filter-company">Компания</label>
+                <select id="filter-company" name="company_id" class="catalog-filters__control">
+                    <option value="">Все</option>
+                    {% for c in companies %}
+                    <option value="{{ c.company_id }}"{% if filter_company_id == c.company_id %} selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="catalog-filters__field">
+                <label class="catalog-filters__label" for="filter-category">Категория</label>
+                <select id="filter-category" name="category_id" class="catalog-filters__control">
+                    <option value="">Все</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.category_id }}"{% if filter_category_id == cat.category_id %} selected{% endif %}>{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="catalog-filters__field catalog-filters__field--narrow">
+                <label class="catalog-filters__label" for="filter-price-min">Цена от, ₽</label>
+                <input id="filter-price-min" name="price_min" type="number" class="catalog-filters__control" min="0" step="1" placeholder="—"{% if filter_price_min is not none %} value="{{ filter_price_min }}"{% endif %}>
+            </div>
+            <div class="catalog-filters__field catalog-filters__field--narrow">
+                <label class="catalog-filters__label" for="filter-price-max">Цена до, ₽</label>
+                <input id="filter-price-max" name="price_max" type="number" class="catalog-filters__control" min="0" step="1" placeholder="—"{% if filter_price_max is not none %} value="{{ filter_price_max }}"{% endif %}>
+            </div>
+            <div class="catalog-filters__field">
+                <label class="catalog-filters__label" for="filter-sort">Порядок</label>
+                <select id="filter-sort" name="sort" class="catalog-filters__control">
+                    <option value=""{% if not filter_sort %} selected{% endif %}>Как в каталоге</option>
+                    <option value="price_asc"{% if filter_sort == 'price_asc' %} selected{% endif %}>Цена: по возрастанию</option>
+                    <option value="price_desc"{% if filter_sort == 'price_desc' %} selected{% endif %}>Цена: по убыванию</option>
+                </select>
+            </div>
+        </div>
+        <div class="catalog-filters__actions">
+            <button type="submit" class="btn btn--primary">Применить</button>
+            {% if is_search %}
+            <a class="btn btn--secondary" href="/search?q={{ q|urlencode }}">Сбросить фильтры</a>
+            {% else %}
+            <a class="btn btn--secondary" href="/">Сбросить фильтры</a>
+            {% endif %}
+        </div>
+        <p class="catalog-filters__note">При указании «цена от/до» показываются только товары с заполненной ценой в базе.</p>
+    </form>
+</section>
 
 {% if offers %}
     <div class="catalog-grid" role="list">
@@ -66,19 +124,19 @@
         <span class="pagination__info">Страница {{ page }} из {{ total_pages }}</span>
         <div class="pagination__links">
             {% if page > 1 %}
-                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page=1{% else %}/?page=1{% endif %}">В начало</a>
-                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ page - 1 }}{% else %}/?page={{ page - 1 }}{% endif %}">Назад</a>
+                <a class="pagination__link" href="{{ listing_href(1) }}">В начало</a>
+                <a class="pagination__link" href="{{ listing_href(page - 1) }}">Назад</a>
             {% endif %}
-            {% for p in range(1, total_pages + 1) %}
-                {% if p == page %}
-                    <span class="pagination__current" aria-current="page">{{ p }}</span>
-                {% elif p >= page - 2 and p <= page + 2 %}
-                    <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ p }}{% else %}/?page={{ p }}{% endif %}">{{ p }}</a>
+            {% for pn in range(1, total_pages + 1) %}
+                {% if pn == page %}
+                    <span class="pagination__current" aria-current="page">{{ pn }}</span>
+                {% elif pn >= page - 2 and pn <= page + 2 %}
+                    <a class="pagination__link" href="{{ listing_href(pn) }}">{{ pn }}</a>
                 {% endif %}
             {% endfor %}
             {% if page < total_pages %}
-                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ page + 1 }}{% else %}/?page={{ page + 1 }}{% endif %}">Вперёд</a>
-                <a class="pagination__link" href="{% if is_search %}/search?q={{ q|urlencode }}&amp;page={{ total_pages }}{% else %}/?page={{ total_pages }}{% endif %}">В конец</a>
+                <a class="pagination__link" href="{{ listing_href(page + 1) }}">Вперёд</a>
+                <a class="pagination__link" href="{{ listing_href(total_pages) }}">В конец</a>
             {% endif %}
         </div>
     </nav>
@@ -89,10 +147,16 @@
         <div class="empty-state" role="status">
             <div class="empty-state__icon" aria-hidden="true">∅</div>
             <h2 class="empty-state__title">Ничего не найдено</h2>
-            <p class="empty-state__text">По запросу <strong>{{ q }}</strong> совпадений нет. Попробуйте другие слова или проверьте, собран ли поисковый индекс в админке.</p>
+            <p class="empty-state__text">По запросу <strong>{{ q }}</strong> совпадений нет (с учётом фильтров). Попробуйте смягчить условия или другие слова.</p>
             <div class="empty-state__actions">
                 <a href="/" class="btn btn--primary">Весь каталог</a>
             </div>
+        </div>
+    {% elif filters_active %}
+        <div class="empty-state" role="status">
+            <div class="empty-state__icon" aria-hidden="true">∅</div>
+            <h2 class="empty-state__title">Нет товаров по фильтрам</h2>
+            <p class="empty-state__text">Измените компанию, категорию или диапазон цены — или <a href="/">сбросьте фильтры</a>.</p>
         </div>
     {% else %}
         <div class="empty-state" role="status">

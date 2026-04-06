@@ -121,6 +121,65 @@ TVS = {
     },
 }
 
+MONITORS = {
+    "category": "Мониторы",
+    "companies": ["LG", "Samsung", "Dell", "ASUS", "Acer", "BenQ", "HP", "Lenovo", "MSI", "Philips"],
+    "templates": [
+        ("UltraGear {num}GP", "LG UltraGear"),
+        ("Odyssey G{num}", "Samsung Odyssey"),
+        ("U{num}20Q", "Dell UltraSharp"),
+        ("ProArt PA{num}", "ASUS ProArt"),
+        ("Nitro VG{num}", "Acer Nitro"),
+        ("PD{num}U", "BenQ PD"),
+        ("X{num}4", "HP X"),
+        ("ThinkVision T{num}", "Lenovo ThinkVision"),
+        ("MAG {num}Q", "MSI MAG"),
+        ("E-Line {num}", "Philips E"),
+    ],
+    "properties": lambda: {
+        "Диагональ": random.choice(["24 дюйм", "27 дюйм", "32 дюйм", "34 дюйм", "49 дюйм"]),
+        "Разрешение": random.choice(["1920x1080", "2560x1440", "3840x2160", "3440x1440"]),
+        "Матрица": random.choice(["IPS", "VA", "OLED", "TN"]),
+        "Частота": random.choice(["60 Гц", "75 Гц", "144 Гц", "165 Гц", "240 Гц"]),
+        "HDR": random.choice(["HDR10", "DisplayHDR 400", "DisplayHDR 600", "Нет"]),
+        "Крепление VESA": random.choice(["100x100", "75x75", "Нет"]),
+        "HDMI / DP": random.choice(["1xHDMI 2xDP", "2xHDMI 1xDP", "1xHDMI 1xUSB-C"]),
+        "Изогнутый экран": random.choice(["Да", "Нет"]),
+    },
+}
+
+DESKTOP_PCS = {
+    "category": "Компьютеры",
+    "companies": ["HP", "Dell", "Lenovo", "ASUS", "Acer", "Apple", "MSI", "CyberPower", "iRU", "Cactus"],
+    "templates": [
+        ("Pavilion Desktop {num}", "HP Pavilion"),
+        ("OptiPlex {num}", "Dell OptiPlex"),
+        ("ThinkCentre M{num}", "Lenovo ThinkCentre"),
+        ("ROG Strix G{num}", "ASUS ROG"),
+        ("Aspire TC-{num}", "Acer Aspire"),
+        ("Mac Studio M{num}", "Mac Studio"),
+        ("MAG Infinite {num}", "MSI Infinite"),
+        ("Gamer Xtreme {num}", "CyberPower"),
+        ("Power {num}", "iRU Power"),
+        ("Green {num}", "Cactus Green"),
+    ],
+    "properties": lambda: {
+        "Процессор": random.choice([
+            "Intel Core i5-13400", "Intel Core i7-13700", "AMD Ryzen 5 7600",
+            "AMD Ryzen 7 7700X", "Apple M2 Max", "Intel Core i9-13900",
+        ]),
+        "ОЗУ": random.choice(["16 ГБ", "32 ГБ", "64 ГБ"]),
+        "SSD": random.choice(["512 ГБ", "1 ТБ", "2 ТБ"]),
+        "Видеокарта": random.choice([
+            "Intel UHD 770", "NVIDIA RTX 4060", "NVIDIA RTX 4070",
+            "AMD RX 7600", "Интегрированная", "NVIDIA RTX 4080",
+        ]),
+        "Форм-фактор": random.choice(["Mini Tower", "Mid Tower", "Full Tower", "SFF", "Моноблок"]),
+        "ОС": random.choice(["Windows 11 Home", "Windows 11 Pro", "Без ОС", "macOS"]),
+        "Wi-Fi": random.choice(["Wi-Fi 6", "Wi-Fi 6E", "Нет"]),
+    },
+}
+
 HEADPHONES = {
     "category": "Наушники",
     "companies": ["Sony", "Bose", "Apple", "Samsung", "Sennheiser", "Jabra", "Beats", "JBL", "Plantronics", "Bang & Olufsen"],
@@ -326,7 +385,7 @@ VACUUM_CLEANERS = {
 }
 
 ALL_CATEGORIES = [
-    LAPTOPS, SMARTPHONES, TVS, HEADPHONES, REFRIGERATORS,
+    LAPTOPS, SMARTPHONES, TVS, MONITORS, DESKTOP_PCS, HEADPHONES, REFRIGERATORS,
     WASHING_MACHINES, CAMERAS, TABLETS, SMART_WATCHES, VACUUM_CLEANERS,
 ]
 
@@ -393,12 +452,15 @@ def generate_products(session: Session, total: int = 1000) -> int:
 
             # ProductOffer
             offer_id = get_next_id(session, ProductOffer, "offer_id")
+            price_rub = float(random.randint(500, 99_999))
+
             offer = ProductOffer(
                 offer_id=offer_id,
                 product_id=product_id,
                 company_id=company.company_id,
                 category_id=category.category_id,
                 short_name=short_name,
+                price_rub=price_rub,
             )
             session.add(offer)
             session.flush()

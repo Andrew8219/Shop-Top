@@ -25,10 +25,30 @@ def is_price_property(p: ProductProperty) -> bool:
     return any(h in n for h in _PRICE_NAME_HINTS)
 
 
+def _format_price_rub_display(value: float) -> str:
+    n = int(round(float(value)))
+    s = f"{n:,}".replace(",", "\u00a0")
+    return f"{s}\u00a0₽"
+
+
+def _price_rub_from_column(offer: ProductOffer) -> Optional[float]:
+    raw = getattr(offer, "price_rub", None)
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+        return v if v >= 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def get_offer_price_display(offer: ProductOffer) -> Optional[str]:
     """
-    Возвращает строку цены, если в характеристиках есть поле вроде «Цена» / price.
+    Сначала колонка price_rub, иначе характеристика вроде «Цена» / price.
     """
+    col = _price_rub_from_column(offer)
+    if col is not None:
+        return _format_price_rub_display(col)
     best: Optional[str] = None
     for p in offer.properties or []:
         if not is_price_property(p):
@@ -93,4 +113,7 @@ def parse_price_rub_numeric(raw: Optional[str]) -> Optional[float]:
 
 
 def get_offer_price_rub(offer: ProductOffer) -> Optional[float]:
+    col = _price_rub_from_column(offer)
+    if col is not None:
+        return col
     return parse_price_rub_numeric(get_offer_price_display(offer))

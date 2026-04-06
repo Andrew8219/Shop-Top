@@ -57,6 +57,13 @@ def build_offer_text(offer: ProductOffer) -> str:
     if offer.category and offer.category.name:
         parts.append(offer.category.name)
 
+    pr = getattr(offer, "price_rub", None)
+    if pr is not None:
+        try:
+            parts.append(f"цена {float(pr):.0f} руб")
+        except (TypeError, ValueError):
+            pass
+
     # свойства: "Название: значение"
     for prop in offer.properties or []:
         if prop.property_name and prop.property_name.name:
