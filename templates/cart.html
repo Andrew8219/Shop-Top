@@ -9,6 +9,12 @@
     </p>
 </div>
 
+{% if request.cookies.get('cart_truncated') == '1' %}
+<p class="form-note cart-page__warn" role="alert">
+    ⚠️ Корзина переполнена — часть старых позиций была автоматически удалена. Проверьте состав заказа.
+</p>
+{% endif %}
+
 {% if cart_stale_count %}
 <p class="form-note cart-page__warn" role="status">
     {{ cart_stale_count }} поз. из корзины больше нет в каталоге — они скрыты из списка. Очистите корзину или удалите устаревшие записи cookie.

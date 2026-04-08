@@ -10,6 +10,21 @@ from models import ProductOffer, ProductProperty
 
 
 _PRICE_NAME_HINTS = ("цен", "price", "стоим", "руб")
+_COLOR_NAME_HINTS = (
+    "цвет",
+    "расцвет",
+    "окрас",
+    "color",
+    "colour",
+)
+_DEFAULT_COLOR_PAIRS = (
+    "Черный / Белый",
+    "Синий / Серый",
+    "Графит / Серебристый",
+    "Красный / Черный",
+    "Зеленый / Черный",
+    "Фиолетовый / Черный",
+)
 
 
 def _prop_name_lower(p: ProductProperty) -> str:
@@ -62,7 +77,9 @@ def get_offer_price_display(offer: ProductOffer) -> Optional[str]:
 
 def get_offer_teaser_lines(offer: ProductOffer, limit: int = 3) -> List[str]:
     """Короткие строки «ключевые атрибуты» для карточки (без цены)."""
-    lines: List[str] = []
+    from search_smart import _is_ram_property_name
+
+    rows: List[tuple] = []
     for p in sorted(
         offer.properties or [],
         key=lambda x: (_prop_name_lower(x), x.property_name_id),
@@ -75,10 +92,33 @@ def get_offer_teaser_lines(offer: ProductOffer, limit: int = 3) -> List[str]:
             continue
         if len(val) > 48:
             val = val[:45] + "…"
-        lines.append(f"{name}: {val}")
-        if len(lines) >= limit:
-            break
-    return lines
+        line = f"{name}: {val}"
+        # Иначе по алфавиту часто попадают только Аккумулятор/Вес/Видеокарта — ОЗУ не видно при фильтре по RAM
+        prio = 0 if _is_ram_property_name(name) else 1
+        rows.append((prio, _prop_name_lower(p), p.property_name_id, line))
+    rows.sort(key=lambda x: (x[0], x[1], x[2]))
+    return [r[3] for r in rows[:limit]]
+
+
+def get_offer_color_display(offer: ProductOffer) -> Optional[str]:
+    """
+    Возвращает цвет товара по свойствам (например, "Цвет", "Цвет корпуса", "Color").
+    """
+    for p in sorted(
+        offer.properties or [],
+        key=lambda x: (_prop_name_lower(x), x.property_name_id),
+    ):
+        pname = _prop_name_lower(p)
+        if not pname:
+            continue
+        if not any(h in pname for h in _COLOR_NAME_HINTS):
+            continue
+        val = (p.value or "").strip()
+        if val:
+            return val
+    # Если цвет в базе не задан — подставляем детерминированную пару цветов.
+    idx = int(getattr(offer, "offer_id", 0) or 0) % len(_DEFAULT_COLOR_PAIRS)
+    return _DEFAULT_COLOR_PAIRS[idx]
 
 
 def offer_card_initials(offer: ProductOffer) -> str:

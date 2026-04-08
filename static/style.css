@@ -85,15 +85,22 @@ body.is-nav-loading {
     background: var(--color-header);
     color: #e2e8f0;
     box-shadow: var(--shadow-md);
+    /* Шапка целиком выше <main>, иначе соседний main перекрывает абсолютные подсказки */
+    position: relative;
+    z-index: 50;
 }
 
 .site-header__shell {
     max-width: 1400px;
     margin: 0 auto;
     padding: 0.5rem 1.25rem 0.85rem;
-    /* Если окно узкое, но строку поиска не переносим — прокрутка вместо обрезки */
+    overflow: visible;
+}
+
+/* Горизонтальная прокрутка только у верхних рядов — строка поиска с выпадающим списком не в overflow-контейнере */
+.site-header__scroll {
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -141,7 +148,8 @@ body.is-nav-loading {
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
-    gap: 0.25rem 1.25rem;
+    /* Между ссылками — gap, без padding слева у первой: выравнивание с логотипом и поиском */
+    gap: 0.35rem 1.15rem;
 }
 
 /* Grid, не flex — колонка с кнопками никогда не уезжает под поле поиска */
@@ -160,6 +168,9 @@ body.is-nav-loading {
     gap: 0.5rem 0.75rem;
     flex: 1 1 auto;
     min-width: 0;
+    justify-content: flex-start;
+    margin: 0;
+    padding: 0;
 }
 
 .header-search__label {
@@ -208,6 +219,59 @@ body.is-nav-loading {
     flex-shrink: 0;
 }
 
+.header-search-block--with-suggest {
+    align-items: flex-start;
+    /* Лейбл и поле — одна линия с логотипом и «Каталог» по inline-start */
+    align-content: flex-start;
+}
+
+.header-search-wrap {
+    position: relative;
+    flex: 1 1 16rem;
+    min-width: 0;
+    max-width: 36rem;
+}
+
+.header-search-wrap .header-search {
+    max-width: none;
+    width: 100%;
+}
+
+.header-search-suggest {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin: 0.2rem 0 0;
+    padding: 0.2rem 0;
+    list-style: none;
+    background: #ffffff;
+    border: 1px solid #475569;
+    border-radius: var(--radius-sm);
+    max-height: 14rem;
+    overflow-y: auto;
+    z-index: 10001;
+    box-shadow: var(--shadow-md);
+}
+
+.header-search-suggest__item {
+    padding: 0.45rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #0f172a;
+}
+
+.header-search-suggest__item:hover,
+.header-search-suggest__item:focus {
+    background: #eff6ff;
+    outline: none;
+}
+
+.page-header__hint--accent {
+    color: var(--color-text);
+    max-width: 48rem;
+}
+
 .site-header__search-actions {
     display: flex;
     flex-wrap: nowrap;
@@ -253,7 +317,7 @@ body.is-nav-loading {
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
-    padding: 0.45rem 0.5rem;
+    padding: 0.45rem 0;
     min-height: 40px;
     display: inline-flex;
     align-items: center;
@@ -528,6 +592,80 @@ body.is-nav-loading {
     max-width: 40rem;
 }
 
+.search-facets {
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.15rem 1.1rem;
+}
+
+.search-facets__title {
+    margin: 0 0 0.65rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.search-facets__group {
+    margin-bottom: 0.85rem;
+}
+
+.search-facets__group:last-child {
+    margin-bottom: 0;
+}
+
+.search-facets__label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-bottom: 0.35rem;
+}
+
+.search-facets__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.5rem;
+    align-items: center;
+}
+
+.search-facets__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.88rem;
+    line-height: 1.3;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.search-facets__chip:hover {
+    border-color: var(--color-primary);
+    background: rgba(37, 99, 235, 0.06);
+}
+
+.search-facets__chip--current {
+    border-color: var(--color-primary);
+    background: rgba(37, 99, 235, 0.1);
+    font-weight: 600;
+}
+
+.search-facets__count {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
+.search-facets__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+    max-width: 44rem;
+}
+
 /* Каталог: столько колонок, сколько помещается (обычно 3–4 на десктопе) */
 .catalog-grid {
     display: grid;
@@ -638,6 +776,7 @@ body.is-nav-loading {
     border-radius: 0;
     box-shadow: none;
     overflow: visible;
+    --offer-hue: 220;
 }
 
 .product-card--minimal:hover {
@@ -646,14 +785,15 @@ body.is-nav-loading {
 }
 
 .product-card--minimal .product-card__body {
-    padding: 0;
+    padding: 0 0 0 0.75rem;
     gap: 0.35rem;
     min-width: 0;
     overflow-wrap: anywhere;
+    border-left: 4px solid hsl(var(--offer-hue) 70% 52%);
 }
 
 .product-card--minimal .product-card__title a {
-    color: var(--color-primary);
+    color: hsl(var(--offer-hue) 62% 44%);
 }
 
 .product-card--minimal .product-card__title a:hover {
@@ -730,6 +870,10 @@ body.is-nav-loading {
     color: var(--color-text-muted);
     margin-top: 0.45rem;
     text-transform: uppercase;
+}
+
+.product-card--minimal .product-card__code {
+    color: hsl(var(--offer-hue) 48% 36%);
 }
 
 /* Карточка товара (детальная) */

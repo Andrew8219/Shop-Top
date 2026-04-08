@@ -11,7 +11,19 @@
         <h1 class="page-header__title">{% if q %}Результаты поиска{% else %}Каталог{% endif %}</h1>
         {% if q %}
             <p class="page-header__meta">Запрос: <strong>{{ q }}</strong></p>
-            <p class="page-header__meta page-header__hint">Из результатов поиска остаются только товары, в которых встречаются <strong>все</strong> слова и числа из запроса (в названии или характеристиках).</p>
+            {% if fuzzy_corrected and fuzzy_corrected_query %}
+            <p class="page-header__meta page-header__hint">Исправлен запрос: «{{ q|e }}» → «{{ fuzzy_corrected_query|e }}»</p>
+            {% endif %}
+            {% if show_effective_search_hint and effective_search_q %}
+            <p class="page-header__meta page-header__hint page-header__hint--accent">Текст для семантического и полнотекстового поиска: <strong>{{ effective_search_q }}</strong>{% if query_refined %} (опечатки и подстановки брендов/категорий){% endif %}</p>
+            {% endif %}
+            {% if parsed_ram_gb %}
+            <p class="page-header__meta page-header__hint">Фильтр по ОЗУ: <strong>{{ parsed_ram_gb }} ГБ</strong>{% if filter_ram_gb %} (через ссылку-фасет){% endif %}.</p>
+            {% endif %}
+            {% if search_ab_mode %}
+            <p class="page-header__meta page-header__hint">Режим поиска (A/B): <strong>{% if search_ab_mode == 'hybrid' %}гибрид{% elif search_ab_mode == 'semantic' %}семантика{% elif search_ab_mode == 'fulltext' %}полнотекст{% else %}{{ search_ab_mode }}{% endif %}</strong>.</p>
+            {% endif %}
+            <p class="page-header__meta page-header__hint">Расширение запроса синонимами; топ-50 после фильтров при необходимости переранжируется cross-encoder (если сортировка не по цене). Можно писать запрос обычным языком.</p>
         {% else %}
             <p class="page-header__meta page-header__hint">
                 Фильтры ниже: компания, категория (ноутбуки, телевизоры и др. из базы), диапазон цены и сортировка. Поиск — в шапке сайта.
@@ -31,6 +43,21 @@
     <form method="get" class="catalog-filters__form" action="{% if is_search %}/search{% else %}/{% endif %}">
         {% if is_search %}
         <input type="hidden" name="q" value="{{ q|e }}">
+        {% if filter_ram_gb is not none %}
+        <input type="hidden" name="ram_gb" value="{{ filter_ram_gb }}">
+        {% endif %}
+        {% if filter_screen_bucket %}
+        <input type="hidden" name="screen" value="{{ filter_screen_bucket|e }}">
+        {% endif %}
+        {% if filter_ssd_gb is not none %}
+        <input type="hidden" name="ssd_gb" value="{{ filter_ssd_gb }}">
+        {% endif %}
+        {% if filter_os_family %}
+        <input type="hidden" name="os" value="{{ filter_os_family|e }}">
+        {% endif %}
+        {% if filter_gpu_value %}
+        <input type="hidden" name="gpu" value="{{ filter_gpu_value|e }}">
+        {% endif %}
         {% endif %}
         <div class="catalog-filters__grid">
             <div class="catalog-filters__field">
@@ -80,13 +107,119 @@
     </form>
 </section>
 
+{% if is_search and search_facets and (search_facets.companies or search_facets.categories or search_facets.price_buckets or search_facets.ram_gb or search_facets.ram_all_href or search_facets.screen_buckets or search_facets.screen_all_href or search_facets.ssd_buckets or search_facets.ssd_all_href or search_facets.os_families or search_facets.os_all_href or search_facets.gpu_values or search_facets.gpu_all_href) %}
+<section class="search-facets card" aria-label="Уточнение по выдаче">
+    <h2 class="search-facets__title">Уточнить выдачу</h2>
+    <p class="search-facets__note">Счётчики по текущему запросу; выбор сбрасывает страницу на первую и создаёт новую запись в журнале поиска.</p>
+    {% if search_facets.companies %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Бренд</span>
+        <div class="search-facets__chips">
+            {% for row in search_facets.companies %}
+            <a class="search-facets__chip{% if filter_company_id == row.id %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.name }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.categories %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Категория</span>
+        <div class="search-facets__chips">
+            {% for row in search_facets.categories %}
+            <a class="search-facets__chip{% if filter_category_id == row.id %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.name }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.price_buckets %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Цена</span>
+        <div class="search-facets__chips">
+            {% for row in search_facets.price_buckets %}
+            <a class="search-facets__chip" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.ram_gb or search_facets.ram_all_href %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">ОЗУ</span>
+        <div class="search-facets__chips">
+            {% if search_facets.ram_all_href %}
+            <a class="search-facets__chip{% if filter_ram_gb is none %} search-facets__chip--current{% endif %}" href="{{ search_facets.ram_all_href }}">Все <span class="search-facets__count">({{ search_facets.ram_all_count }})</span></a>
+            {% endif %}
+            {% for row in search_facets.ram_gb %}
+            <a class="search-facets__chip{% if filter_ram_gb == row.gb %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.screen_buckets or search_facets.screen_all_href %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Диагональ экрана</span>
+        <div class="search-facets__chips">
+            {% if search_facets.screen_all_href %}
+            <a class="search-facets__chip{% if not filter_screen_bucket %} search-facets__chip--current{% endif %}" href="{{ search_facets.screen_all_href }}">Все <span class="search-facets__count">({{ search_facets.screen_all_count }})</span></a>
+            {% endif %}
+            {% for row in search_facets.screen_buckets %}
+            <a class="search-facets__chip{% if filter_screen_bucket == row.key %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.ssd_buckets or search_facets.ssd_all_href %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Накопитель (SSD)</span>
+        <div class="search-facets__chips">
+            {% if search_facets.ssd_all_href %}
+            <a class="search-facets__chip{% if filter_ssd_gb is none %} search-facets__chip--current{% endif %}" href="{{ search_facets.ssd_all_href }}">Все <span class="search-facets__count">({{ search_facets.ssd_all_count }})</span></a>
+            {% endif %}
+            {% for row in search_facets.ssd_buckets %}
+            <a class="search-facets__chip{% if filter_ssd_gb == row.gb %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.os_families or search_facets.os_all_href %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">ОС</span>
+        <div class="search-facets__chips">
+            {% if search_facets.os_all_href %}
+            <a class="search-facets__chip{% if not filter_os_family %} search-facets__chip--current{% endif %}" href="{{ search_facets.os_all_href }}">Все <span class="search-facets__count">({{ search_facets.os_all_count }})</span></a>
+            {% endif %}
+            {% for row in search_facets.os_families %}
+            <a class="search-facets__chip{% if filter_os_family == row.key %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if search_facets.gpu_values or search_facets.gpu_all_href %}
+    <div class="search-facets__group">
+        <span class="search-facets__label">Видеокарта</span>
+        <div class="search-facets__chips">
+            {% if search_facets.gpu_all_href %}
+            <a class="search-facets__chip{% if not filter_gpu_value %} search-facets__chip--current{% endif %}" href="{{ search_facets.gpu_all_href }}">Все <span class="search-facets__count">({{ search_facets.gpu_all_count }})</span></a>
+            {% endif %}
+            {% for row in search_facets.gpu_values %}
+            <a class="search-facets__chip{% if filter_gpu_value == row.value %} search-facets__chip--current{% endif %}" href="{{ row.href }}">{{ row.label }} <span class="search-facets__count">({{ row.count }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
 {% if offers %}
     <div class="catalog-grid" role="list">
         {% for offer in offers %}
-        <article class="product-card product-card--minimal" role="listitem">
+        <article
+            class="product-card product-card--minimal"
+            role="listitem"
+            style="--offer-hue: 220;"
+        >
             <div class="product-card__body">
                 <h2 class="product-card__title">
-                    <a href="/product/{{ offer.offer_id }}">{{ offer.short_name or ("Товар #" ~ offer.product_id) }}</a>
+                    <a href="/product/{{ offer.offer_id }}{% if search_log_id %}?sl={{ search_log_id }}{% endif %}">{{ offer.short_name or ("Товар #" ~ offer.product_id) }}</a>
                 </h2>
                 {% set p = shop_price(offer) %}
                 {% if p %}
@@ -104,7 +237,7 @@
                     {% if offer.category %}<span class="product-card__dot">·</span><span>{{ offer.category.name }}</span>{% endif %}
                 </div>
                 <div class="product-card__links">
-                    <a href="/product/{{ offer.offer_id }}">Подробнее</a>
+                    <a href="/product/{{ offer.offer_id }}{% if search_log_id %}?sl={{ search_log_id }}{% endif %}">Подробнее</a>
                     <span class="product-card__links-sep" aria-hidden="true"> · </span>
                     <form method="post" action="/cart/add" class="product-card__add-form">
                         <input type="hidden" name="offer_id" value="{{ offer.offer_id }}">

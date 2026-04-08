@@ -8,7 +8,7 @@ import hashlib
 import hmac
 import json
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 LOG = logging.getLogger(__name__)
 
@@ -97,16 +97,36 @@ def cart_set_qty(cart: Dict[int, int], offer_id: int, quantity: int) -> Dict[int
     return new_cart
 
 
-def attach_cart_to_response(response, cart: Dict[int, int], secret: str) -> None:
+def attach_cart_to_response(
+    response,
+    cart: Dict[int, int],
+    secret: str,
+    *,
+    secure: bool = False,
+    truncated_flag: Optional[bool] = None,
+) -> bool:
+    """
+    Записывает корзину в cookie. Возвращает True если корзина была усечена.
+    Вызывающий код может проверить возвращаемое значение и показать предупреждение.
+    """
     if not cart:
         response.delete_cookie(COOKIE_NAME, path="/")
-        return
+        return False
+
     token = serialize_cart_cookie(cart, secret)
+    was_truncated = False
     if len(token) > 3800:
-        LOG.warning("cart cookie too large, truncating")
-        # оставляем последние позиции по id
-        trimmed = dict(sorted(cart.items(), key=lambda x: x[0])[-40:])
+        # Оставляем последние MAX_DISTINCT_ITEMS // 2 позиций по id
+        keep = MAX_DISTINCT_ITEMS // 2
+        trimmed = dict(sorted(cart.items(), key=lambda x: x[0])[-keep:])
         token = serialize_cart_cookie(trimmed, secret)
+        was_truncated = True
+        LOG.warning(
+            "cart cookie слишком большой (%d байт), усечён до %d позиций",
+            len(serialize_cart_cookie(cart, secret)),
+            keep,
+        )
+
     response.set_cookie(
         COOKIE_NAME,
         token,
@@ -114,5 +134,17 @@ def attach_cart_to_response(response, cart: Dict[int, int], secret: str) -> None
         path="/",
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=secure,
     )
+    if was_truncated:
+        # флаг для шаблона — живёт 30 секунд
+        response.set_cookie(
+            "cart_truncated",
+            "1",
+            max_age=30,
+            path="/",
+            httponly=False,
+            samesite="lax",
+            secure=secure,
+        )
+    return was_truncated

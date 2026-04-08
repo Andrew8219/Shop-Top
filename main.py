@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 import os
+import re
+import time
 import threading
 import uuid
 import logging
-from typing import List, Optional, Dict, Tuple
+from collections import defaultdict
+from typing import List, Optional, Dict, Sequence, Set, Tuple
 from urllib.parse import urlencode
 
 from fastapi import (
@@ -20,7 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request as StarletteRequest
-from sqlalchemy import and_, asc, desc, func, nulls_last, select, text
+from sqlalchemy import and_, asc, desc, func, nulls_last, select, text, update
 from sqlalchemy.orm import Session, selectinload
 
 from jose import JWTError, jwt
@@ -32,17 +35,37 @@ from models import (
     Company,
     ProductOffer,
     ProductProperty,
+    SearchLog,
     User,
 )
 import analytics
+from search_facets import (
+    compute_search_facets,
+    filter_offer_ids_by_gpu_value,
+    filter_offer_ids_by_os_family,
+    filter_offer_ids_by_screen_bucket,
+    filter_offer_ids_by_ssd_bucket,
+)
 from search_index import (
     build_search_index,
+    ensure_gin_index,
     fetch_offers_in_order,
-    filter_offer_ids_by_query_tokens,
-    rrf_merge,
+    filter_offer_ids_by_query_tokens_soft,
+    merge_search_rankings,
+    rerank_offer_ids_cross_encoder,
     semantic_search_faiss,
     semantic_search_pgvector,
     text_search,
+)
+from search_smart import (
+    filter_offer_ids_by_ram_gb,
+    get_cached_suggest_strings,
+    log_search_query,
+    prepare_search_query,
+    prioritize_by_battery,
+    prioritize_by_display,
+    prioritize_vacuum_offers_by_suction,
+    suggest_completions,
 )
 from normalization import (
     build_mapping,
@@ -96,6 +119,7 @@ logging.basicConfig(
 LOG = logging.getLogger(__name__)
 
 
+
 # =====================
 #   СТРУКТУРА ЗАДАЧ НОРМАЛИЗАЦИИ
 # =====================
@@ -139,12 +163,53 @@ def update_job(job_id: str, **kwargs) -> None:
 
 
 # =====================
+#   RATE LIMITING (in-memory, без зависимостей)
+# =====================
+
+_RL_WINDOW = 60          # окно в секундах
+_RL_MAX_ATTEMPTS = 10    # максимум попыток в окне на один IP
+
+_rl_store: Dict[str, List[float]] = defaultdict(list)
+_rl_lock = threading.Lock()
+
+
+def _is_rate_limited(ip: str) -> bool:
+    """Возвращает True, если IP превысил лимит запросов."""
+    now = time.monotonic()
+    with _rl_lock:
+        hits = _rl_store[ip]
+        _rl_store[ip] = [t for t in hits if now - t < _RL_WINDOW]
+        if len(_rl_store[ip]) >= _RL_MAX_ATTEMPTS:
+            return True
+        _rl_store[ip].append(now)
+        return False
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+# =====================
 #   JWT / ПАРОЛИ
 # =====================
 
-SECRET_KEY = "CHANGE_ME_TO_LONG_RANDOM_SECRET"  # замените на длинную случайную строку
+_SECRET_KEY_DEFAULT = "CHANGE_ME_TO_LONG_RANDOM_SECRET"
+SECRET_KEY: str = os.getenv("SECRET_KEY", _SECRET_KEY_DEFAULT)
+if SECRET_KEY == _SECRET_KEY_DEFAULT:
+    LOG.critical(
+        "⚠️  SECRET_KEY использует небезопасное значение по умолчанию! "
+        "Сгенерируйте ключ: python -c \"import secrets; print(secrets.token_hex(32))\" "
+        "и задайте SECRET_KEY в .env файле."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 день
+
+# True если приложение работает за HTTPS (задайте COOKIE_SECURE=1 в .env)
+COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "0").strip() == "1"
 
 # используем pbkdf2_sha256, чтобы избежать ограничений bcrypt
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -253,6 +318,21 @@ Base.metadata.create_all(bind=engine)
 _ensure_product_offers_price_rub()
 _backfill_product_offers_prices()
 
+
+def _try_ensure_gin_index() -> None:
+    """Создаёт GIN-индекс на search_index.tsv при старте (если таблица уже заполнена)."""
+    db = SessionLocal()
+    try:
+        ensure_gin_index(db)
+    except Exception:
+        LOG.warning("GIN-индекс при старте не создан (возможно, таблица пуста)", exc_info=False)
+        db.rollback()
+    finally:
+        db.close()
+
+
+_try_ensure_gin_index()
+
 app = FastAPI(title="MediaLux Shop")
 
 
@@ -296,6 +376,140 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+
+def _enrich_search_facet_hrefs(
+    *,
+    q: str,
+    company_id: Optional[int],
+    category_id: Optional[int],
+    price_min: Optional[float],
+    price_max: Optional[float],
+    sort: str,
+    ram_gb: Optional[int],
+    screen_bucket: Optional[str],
+    ssd_gb: Optional[int],
+    os_family: Optional[str],
+    gpu_value: Optional[str],
+    facets: dict,
+    search_sl: Optional[int] = None,
+) -> None:
+    """Добавляет ключ href к элементам фасетов (in-place)."""
+    cat = category_id if category_id and category_id > 0 else None
+    comp = company_id if company_id and company_id > 0 else None
+    for row in facets.get("companies") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=int(row["id"]),
+            category_id=cat,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_gb,
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("categories") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=int(row["id"]),
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_gb,
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("price_buckets") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=cat,
+            price_min=row.get("price_min"),
+            price_max=row.get("price_max"),
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_gb,
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("ram_gb") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=cat,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=int(row["gb"]),
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_gb,
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("screen_buckets") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=cat,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=str(row["key"]),
+            ssd_gb=ssd_gb,
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("ssd_buckets") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=cat,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=int(row["gb"]),
+            os_family=os_family,
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
+    for row in facets.get("os_families") or []:
+        row["href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=comp,
+            category_id=cat,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_gb,
+            os_family=str(row["key"]),
+            gpu=gpu_value,
+            search_sl=search_sl,
+        )
 
 
 def _cart_from_request(request: Request) -> Dict[int, int]:
@@ -581,9 +795,23 @@ def run_search_index_job(job_id: str) -> None:
 
     db = SessionLocal()
     try:
-        # пока прогресс простой (в перспективе можно детализировать батчи)
-        update_job(job_id, progress=5, stage="collect", message="Читаем товары из БД")
-        result = build_search_index(db, rebuild=True)
+        def _search_progress(stage: str, current: int, total: int) -> None:
+            if total <= 0:
+                return
+            stage_norm = stage if stage in ("collect", "embed", "faiss") else "collect"
+            if stage_norm == "collect":
+                base, span, msg = 0, 35, "Читаем товары из БД"
+            elif stage_norm == "embed":
+                base, span, msg = 35, 50, "Считаем эмбеддинги"
+            else:
+                base, span, msg = 85, 15, "Собираем FAISS индекс"
+            pct = base + int(current / total * span)
+            if pct > 99:
+                pct = 99
+            update_job(job_id, progress=pct, stage=stage_norm, message=msg)
+
+        update_job(job_id, progress=3, stage="collect", message="Старт индексации")
+        result = build_search_index(db, rebuild=True, progress_cb=_search_progress)
         update_job(
             job_id,
             status="done",
@@ -650,6 +878,49 @@ def _normalize_price_bounds(
     return price_min, price_max
 
 
+def _parse_screen_bucket_q(raw: Optional[str]) -> Optional[str]:
+    if raw is None or not str(raw).strip():
+        return None
+    s = str(raw).strip().lower()
+    return s if s in ("small", "medium", "large") else None
+
+
+def _screen_bucket_from_diagonal(diagonal_inch: Optional[float]) -> Optional[str]:
+    if diagonal_inch is None:
+        return None
+    if diagonal_inch <= 13.0:
+        return "small"
+    if diagonal_inch <= 15.0:
+        return "medium"
+    return "large"
+
+
+def _parse_ssd_facet_gb(raw: Optional[str]) -> Optional[int]:
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        v = int(str(raw).strip())
+    except ValueError:
+        return None
+    return v if v in (256, 512, 1024, 2048) else None
+
+
+def _parse_os_family_q(raw: Optional[str]) -> Optional[str]:
+    if raw is None or not str(raw).strip():
+        return None
+    s = str(raw).strip().lower()
+    return s if s in ("windows", "macos", "android", "none") else None
+
+
+def _parse_gpu_q(raw: Optional[str]) -> Optional[str]:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    return s[:80]
+
+
 def _catalog_filter_clauses(
     company_id: Optional[int],
     category_id: Optional[int],
@@ -693,6 +964,12 @@ def _listing_qs_no_page(
     price_min: Optional[float],
     price_max: Optional[float],
     sort: str,
+    ram_gb: Optional[int] = None,
+    screen_bucket: Optional[str] = None,
+    ssd_gb: Optional[int] = None,
+    os_family: Optional[str] = None,
+    gpu: Optional[str] = None,
+    search_sl: Optional[int] = None,
 ) -> str:
     parts: Dict[str, object] = {}
     if is_search and q:
@@ -707,7 +984,49 @@ def _listing_qs_no_page(
         parts["price_max"] = price_max
     if sort:
         parts["sort"] = sort
+    if ram_gb is not None and ram_gb > 0:
+        parts["ram_gb"] = int(ram_gb)
+    if screen_bucket:
+        parts["screen"] = str(screen_bucket)
+    if ssd_gb is not None and ssd_gb > 0:
+        parts["ssd_gb"] = int(ssd_gb)
+    if os_family:
+        parts["os"] = str(os_family)
+    if gpu:
+        parts["gpu"] = str(gpu)
+    if search_sl is not None and search_sl > 0:
+        parts["sl"] = int(search_sl)
     return urlencode(parts, doseq=True)
+
+
+def _dedupe_offer_ids_preserve_order(ids: Sequence[int]) -> List[int]:
+    """Один offer_id — одна позиция в выдаче (иначе len > числа карточек)."""
+    seen: Set[int] = set()
+    out: List[int] = []
+    for raw in ids:
+        x = int(raw)
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    return out
+
+
+def _materialize_search_offer_ids(db: Session, ids: Sequence[int]) -> List[int]:
+    """
+    Уникальные id в исходном порядке, только существующие в product_offers.
+    Иначе в списке могут быть дубликаты из ранжирования или «фантомы» из индекса —
+    тогда «Показано N из M», а карточек меньше.
+    """
+    u = _dedupe_offer_ids_preserve_order(ids)
+    if not u:
+        return []
+    found = set(
+        db.execute(
+            select(ProductOffer.offer_id).where(ProductOffer.offer_id.in_(u))
+        ).scalars().all()
+    )
+    return [x for x in u if x in found]
 
 
 def _filter_search_offer_ids(
@@ -753,10 +1072,21 @@ def _sort_offer_ids_by_price(db: Session, ids: List[int], sort: str) -> List[int
     return sorted(ids, key=key_asc if sort == "price_asc" else key_desc)
 
 
+_catalog_cache: Optional[Tuple[List[Company], List[Category]]] = None
+_catalog_cache_ts: float = 0.0
+_CATALOG_CACHE_TTL = 300  # секунд
+
+
 def _load_catalog_filter_lookups(db: Session) -> Tuple[List[Company], List[Category]]:
-    companies = db.execute(select(Company).order_by(Company.name)).scalars().all()
-    categories = db.execute(select(Category).order_by(Category.name)).scalars().all()
-    return companies, categories
+    global _catalog_cache, _catalog_cache_ts
+    now = time.monotonic()
+    if _catalog_cache is not None and (now - _catalog_cache_ts) < _CATALOG_CACHE_TTL:
+        return _catalog_cache
+    companies = list(db.execute(select(Company).order_by(Company.name)).scalars().all())
+    categories = list(db.execute(select(Category).order_by(Category.name)).scalars().all())
+    _catalog_cache = (companies, categories)
+    _catalog_cache_ts = now
+    return _catalog_cache
 
 
 # =====================
@@ -852,6 +1182,12 @@ async def index(
             "from_item": from_item,
             "to_item": to_item,
             "q": "",
+            "effective_search_q": "",
+            "query_refined": False,
+            "show_effective_search_hint": False,
+            "fuzzy_corrected": False,
+            "fuzzy_corrected_query": None,
+            "parsed_ram_gb": None,
             "is_search": False,
             "companies": companies,
             "categories": categories,
@@ -862,6 +1198,14 @@ async def index(
             "filter_sort": sort,
             "listing_qs_no_page": listing_qs_no_page,
             "filters_active": filters_active,
+            "search_facets": None,
+            "search_log_id": None,
+            "search_ab_mode": None,
+            "filter_ram_gb": None,
+            "filter_screen_bucket": None,
+            "filter_ssd_gb": None,
+            "filter_os_family": None,
+            "filter_gpu_value": None,
         },
     )
 
@@ -872,6 +1216,7 @@ async def product_detail(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user),
+    sl: Optional[int] = Query(None, ge=1, description="ID строки search_logs для учёта клика"),
 ):
     stmt = (
         select(ProductOffer)
@@ -895,6 +1240,19 @@ async def product_detail(
                 "offer_id": offer_id,
             },
         )
+
+    if sl is not None:
+        try:
+            db.execute(
+                update(SearchLog)
+                .where(SearchLog.id == int(sl))
+                .where(SearchLog.clicked_offer_id.is_(None))
+                .values(clicked_offer_id=int(offer_id))
+            )
+            db.commit()
+        except Exception:
+            LOG.exception("SearchLog click update failed (sl=%s)", sl)
+            db.rollback()
 
     props = sorted(
         offer.properties,
@@ -928,6 +1286,7 @@ async def product_detail(
             "user": current_user,
             "key_attrs": key_attrs,
             "price_display": shop_ui.get_offer_price_display(offer),
+            "color_display": shop_ui.get_offer_color_display(offer),
         },
     )
 
@@ -943,7 +1302,7 @@ async def cart_add_item(
     cart = cart_cookie.cart_add(cart, offer_id, quantity)
     dest = _safe_next_path(redirect, "/cart")
     resp = RedirectResponse(url=dest, status_code=status.HTTP_303_SEE_OTHER)
-    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY, secure=COOKIE_SECURE)
     return resp
 
 
@@ -955,7 +1314,7 @@ async def cart_remove_item(
     cart = _cart_from_request(request)
     cart = cart_cookie.cart_remove(cart, offer_id)
     resp = RedirectResponse(url="/cart", status_code=status.HTTP_303_SEE_OTHER)
-    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY, secure=COOKIE_SECURE)
     return resp
 
 
@@ -968,7 +1327,7 @@ async def cart_set_quantity(
     cart = _cart_from_request(request)
     cart = cart_cookie.cart_set_qty(cart, offer_id, quantity)
     resp = RedirectResponse(url="/cart", status_code=status.HTTP_303_SEE_OTHER)
-    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY)
+    cart_cookie.attach_cart_to_response(resp, cart, SECRET_KEY, secure=COOKIE_SECURE)
     return resp
 
 
@@ -1192,6 +1551,17 @@ async def search_index_build_start(
 # =====================
 
 
+@app.get("/search/suggest")
+async def search_suggest(
+    q: str = Query("", max_length=220),
+    db: Session = Depends(get_db),
+):
+    """JSON-подсказки для autocomplete (бренды, категории, названия товаров)."""
+    choices = get_cached_suggest_strings(db)
+    suggestions = suggest_completions(q, choices, limit=12)
+    return JSONResponse({"suggestions": suggestions})
+
+
 @app.get("/search", response_class=HTMLResponse)
 async def search_page(
     request: Request,
@@ -1204,6 +1574,12 @@ async def search_page(
     price_min_q: Optional[str] = Query(None, alias="price_min"),
     price_max_q: Optional[str] = Query(None, alias="price_max"),
     sort: str = Query(""),
+    ram_gb: Optional[int] = Query(None, ge=1, le=512, alias="ram_gb"),
+    screen_q: Optional[str] = Query(None, alias="screen"),
+    ssd_gb_q: Optional[str] = Query(None, alias="ssd_gb"),
+    os_q: Optional[str] = Query(None, alias="os"),
+    gpu_q: Optional[str] = Query(None, alias="gpu"),
+    sl_keep: Optional[int] = Query(None, ge=1, alias="sl"),
 ):
     q = (q or "").strip()
     page_size = 50
@@ -1214,31 +1590,98 @@ async def search_page(
         _parse_query_optional_float_nonneg(price_min_q),
         _parse_query_optional_float_nonneg(price_max_q),
     )
+    screen_bucket = _parse_screen_bucket_q(screen_q)
+    ssd_facet_gb = _parse_ssd_facet_gb(ssd_gb_q)
+    os_family = _parse_os_family_q(os_q)
+    gpu_filter = _parse_gpu_q(gpu_q)
 
     if not q:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
-    # кандидаты: semantic + text
-    semantic_ranks = semantic_search_faiss(q, top_k=200)
+    companies, categories = _load_catalog_filter_lookups(db)
+    company_names = [c.name for c in companies if c.name]
+    category_names = [c.name for c in categories if c.name]
+
+    (
+        search_q,
+        parsed_intent,
+        query_refined,
+        search_q_retrieval,
+        fuzzy_changed,
+        fuzzy_display_q,
+    ) = prepare_search_query(q, company_names, category_names)
+    if fuzzy_changed and fuzzy_display_q.strip():
+        LOG.info(
+            "Поиск: fuzzy-исправление (clean_q) %r -> %r",
+            parsed_intent.clean_q,
+            fuzzy_display_q,
+        )
+    if query_refined and search_q.casefold() != q.casefold():
+        LOG.info("Поиск: уточнение запроса %r -> %r", q, search_q)
+
+    if search_q_retrieval.casefold() != search_q.casefold():
+        LOG.info("Поиск: расширение запроса (retrieval) %r -> %r", search_q, search_q_retrieval)
+
+    if price_min is None and parsed_intent.price_min is not None:
+        price_min = parsed_intent.price_min
+    if price_max is None and parsed_intent.price_max is not None:
+        price_max = parsed_intent.price_max
+    price_min, price_max = _normalize_price_bounds(price_min, price_max)
+
+    ram_filter_gb = ram_gb if ram_gb is not None else parsed_intent.ram_gb
+    if screen_bucket is None:
+        screen_bucket = _screen_bucket_from_diagonal(parsed_intent.diagonal_inch)
+    if ssd_facet_gb is None and parsed_intent.ssd_gb is not None:
+        ssd_facet_gb = parsed_intent.ssd_gb
+
+    semantic_ranks = semantic_search_faiss(search_q_retrieval, top_k=200)
     if not semantic_ranks:
-        # fallback на pgvector (если есть)
         try:
-            semantic_ranks = semantic_search_pgvector(db, q, top_k=200)
+            semantic_ranks = semantic_search_pgvector(db, search_q_retrieval, top_k=200)
         except Exception:
             semantic_ranks = []
 
     text_ranks = []
     try:
-        text_ranks = text_search(db, q, top_k=200)
+        text_ranks = text_search(db, search_q_retrieval, top_k=200)
     except Exception:
         text_ranks = []
 
-    merged_ids = rrf_merge(semantic_ranks, text_ranks, k=60, limit=500)
-    merged_ids = filter_offer_ids_by_query_tokens(db, merged_ids, q)
+    merged_ids = merge_search_rankings(
+        "hybrid", semantic_ranks, text_ranks, k=60, limit=500
+    )
+    before_soft_filter = list(merged_ids)
+    merged_ids = filter_offer_ids_by_query_tokens_soft(db, merged_ids, search_q)
+    if not merged_ids and before_soft_filter:
+        # Разговорный запрос может потерять все документы на soft-постфильтре.
+        # В таком случае оставляем кандидатов retrieval и продолжаем стандартные фильтры.
+        LOG.info(
+            "Soft token filter returned empty; fallback to retrieval candidates (q=%r, candidates=%s)",
+            q,
+            len(before_soft_filter),
+        )
+        merged_ids = before_soft_filter
+    ids_soft = list(merged_ids)
     merged_ids = _filter_search_offer_ids(
         db, merged_ids, company_id, category_id, price_min, price_max
     )
+    if ram_filter_gb is not None:
+        merged_ids = filter_offer_ids_by_ram_gb(db, merged_ids, ram_filter_gb)
+    if screen_bucket:
+        merged_ids = filter_offer_ids_by_screen_bucket(db, merged_ids, screen_bucket)
+    if ssd_facet_gb is not None:
+        merged_ids = filter_offer_ids_by_ssd_bucket(db, merged_ids, ssd_facet_gb)
+    if os_family:
+        merged_ids = filter_offer_ids_by_os_family(db, merged_ids, os_family)
+    if gpu_filter:
+        merged_ids = filter_offer_ids_by_gpu_value(db, merged_ids, gpu_filter)
+    merged_ids = prioritize_vacuum_offers_by_suction(db, merged_ids, q)
+    merged_ids = prioritize_by_battery(db, merged_ids, q)
+    merged_ids = prioritize_by_display(db, merged_ids, q)
+    if sort not in ("price_asc", "price_desc") and merged_ids:
+        merged_ids = rerank_offer_ids_cross_encoder(db, search_q, merged_ids, head_size=50)
     merged_ids = _sort_offer_ids_by_price(db, merged_ids, sort)
+    merged_ids = _materialize_search_offer_ids(db, merged_ids)
 
     total_offers = len(merged_ids)
     total_pages = max(1, (total_offers + page_size - 1) // page_size)
@@ -1252,7 +1695,143 @@ async def search_page(
     from_item = offset + 1 if offers else 0
     to_item = offset + len(offers)
 
-    companies, categories = _load_catalog_filter_lookups(db)
+    show_effective_search_hint = search_q.casefold().strip() != q.casefold().strip()
+    filters_active = bool(
+        (company_id and company_id > 0)
+        or (category_id and category_id > 0)
+        or price_min is not None
+        or price_max is not None
+        or sort
+        or (ram_filter_gb is not None)
+        or bool(screen_bucket)
+        or (ssd_facet_gb is not None)
+        or bool(os_family)
+        or bool(gpu_filter)
+    )
+
+    facets = compute_search_facets(
+        db,
+        ids_soft,
+        company_id=company_id,
+        category_id=category_id,
+        price_min=price_min,
+        price_max=price_max,
+        filter_offer_ids_fn=_filter_search_offer_ids,
+        ram_gb_filter=ram_filter_gb,
+        screen_bucket=screen_bucket,
+        ssd_gb_filter=ssd_facet_gb,
+        os_family=os_family,
+        gpu_filter=gpu_filter,
+    )
+    _enrich_search_facet_hrefs(
+        q=q,
+        company_id=company_id,
+        category_id=category_id,
+        price_min=price_min,
+        price_max=price_max,
+        sort=sort,
+        ram_gb=ram_filter_gb,
+        screen_bucket=screen_bucket,
+        ssd_gb=ssd_facet_gb,
+        os_family=os_family,
+        gpu_value=gpu_filter,
+        facets=facets,
+        search_sl=sl_keep,
+    )
+    if facets.get("ram_gb") or ram_filter_gb is not None:
+        facets["ram_all_href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=company_id,
+            category_id=category_id,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=None,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_facet_gb,
+            os_family=os_family,
+            gpu=gpu_filter,
+            search_sl=sl_keep,
+        )
+    if facets.get("screen_buckets") or screen_bucket:
+        facets["screen_all_href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=company_id,
+            category_id=category_id,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_filter_gb,
+            screen_bucket=None,
+            ssd_gb=ssd_facet_gb,
+            os_family=os_family,
+            gpu=gpu_filter,
+            search_sl=sl_keep,
+        )
+    if facets.get("ssd_buckets") or ssd_facet_gb is not None:
+        facets["ssd_all_href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=company_id,
+            category_id=category_id,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_filter_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=None,
+            os_family=os_family,
+            gpu=gpu_filter,
+            search_sl=sl_keep,
+        )
+    if facets.get("os_families") or os_family:
+        facets["os_all_href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=company_id,
+            category_id=category_id,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_filter_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_facet_gb,
+            os_family=None,
+            gpu=gpu_filter,
+            search_sl=sl_keep,
+        )
+    if facets.get("gpu_values") or gpu_filter:
+        facets["gpu_all_href"] = "/search?" + _listing_qs_no_page(
+            is_search=True,
+            q=q,
+            company_id=company_id,
+            category_id=category_id,
+            price_min=price_min,
+            price_max=price_max,
+            sort=sort,
+            ram_gb=ram_filter_gb,
+            screen_bucket=screen_bucket,
+            ssd_gb=ssd_facet_gb,
+            os_family=os_family,
+            gpu=None,
+            search_sl=sl_keep,
+        )
+
+    search_log_id: Optional[int] = None
+    if page == 1:
+        search_log_id = log_search_query(
+            db,
+            q,
+            int(total_offers),
+            search_mode="hybrid",
+        )
+        if search_log_id is None:
+            LOG.exception("Не удалось записать SearchLog")
+    else:
+        search_log_id = sl_keep
+
     listing_qs_no_page = _listing_qs_no_page(
         is_search=True,
         q=q,
@@ -1261,16 +1840,15 @@ async def search_page(
         price_min=price_min,
         price_max=price_max,
         sort=sort,
-    )
-    filters_active = bool(
-        (company_id and company_id > 0)
-        or (category_id and category_id > 0)
-        or price_min is not None
-        or price_max is not None
-        or sort
+        ram_gb=ram_filter_gb,
+        screen_bucket=screen_bucket,
+        ssd_gb=ssd_facet_gb,
+        os_family=os_family,
+        gpu=gpu_filter,
+        search_sl=search_log_id,
     )
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
@@ -1282,6 +1860,12 @@ async def search_page(
             "from_item": from_item,
             "to_item": to_item,
             "q": q,
+            "effective_search_q": search_q,
+            "query_refined": query_refined,
+            "show_effective_search_hint": show_effective_search_hint,
+            "fuzzy_corrected": fuzzy_changed,
+            "fuzzy_corrected_query": (fuzzy_display_q.strip() if fuzzy_changed else None),
+            "parsed_ram_gb": ram_filter_gb,
             "is_search": True,
             "companies": companies,
             "categories": categories,
@@ -1292,8 +1876,17 @@ async def search_page(
             "filter_sort": sort,
             "listing_qs_no_page": listing_qs_no_page,
             "filters_active": filters_active,
+            "search_facets": facets,
+            "search_log_id": search_log_id,
+            "search_ab_mode": "hybrid",
+            "filter_ram_gb": ram_filter_gb,
+            "filter_screen_bucket": screen_bucket,
+            "filter_ssd_gb": ssd_facet_gb,
+            "filter_os_family": os_family,
+            "filter_gpu_value": gpu_filter,
         },
     )
+    return response
 
 
 @app.get("/admin/normalization/progress/{job_id}", response_class=HTMLResponse)
@@ -1396,6 +1989,14 @@ async def register(
     username: str = Form(...),
     password: str = Form(...),
 ):
+    if _is_rate_limited(_client_ip(request)):
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={"user": None, "error": "Слишком много попыток. Подождите минуту."},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     username = username.strip()
     if not username or not password:
         return templates.TemplateResponse(
@@ -1422,7 +2023,7 @@ async def register(
         username=username,
         hashed_password=get_password_hash(password),
         is_active=True,
-        is_superuser=True,
+        is_superuser=False,
     )
     db.add(user)
     db.commit()
@@ -1456,6 +2057,14 @@ async def login(
     username: str = Form(...),
     password: str = Form(...),
 ):
+    if _is_rate_limited(_client_ip(request)):
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"user": None, "error": "Слишком много попыток. Подождите минуту."},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     username = username.strip()
     user = get_user_by_username(db, username)
     if not user or not verify_password(password, user.hashed_password):
@@ -1476,7 +2085,7 @@ async def login(
         value=access_token,
         httponly=True,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        secure=False,
+        secure=COOKIE_SECURE,
         samesite="lax",
     )
     return redirect

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import logging
 from pathlib import Path
@@ -141,17 +142,61 @@ class PropGroupClsDataset(Dataset):
 
 
 # ========================
-#   MAIN
+#   CLI / MAIN
 # ========================
 
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Дообучение rubert-tiny2 для группировки имён характеристик (mini-LLM)."
+    )
+    p.add_argument(
+        "--data",
+        default="data/prop_group_clusters_for_labeling.jsonl",
+        help="Файл разметки кластеров (JSON-массив или поток JSON-объектов).",
+    )
+    p.add_argument(
+        "--output",
+        default="models/prop_groups_llm",
+        help="Куда сохранить tokenizer + веса для inference в normalization.py.",
+    )
+    p.add_argument(
+        "--base-model",
+        default="cointegrated/rubert-tiny2",
+        help="Базовая модель HuggingFace.",
+    )
+    p.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Число эпох (по умолчанию: 8; с --full: 120).",
+    )
+    p.add_argument(
+        "--full",
+        action="store_true",
+        help="Долгое обучение как в старой версии скрипта (120 эпох).",
+    )
+    p.add_argument("--batch-size", type=int, default=8, help="Размер батча train/eval.")
+    p.add_argument("--lr", type=float, default=5e-5, help="Learning rate.")
+    p.add_argument("--seed", type=int, default=42, help="Seed для train/val split.")
+    p.add_argument(
+        "--checkpoint-dir",
+        default="models/prop_groups_llm_checkpoints",
+        help="Промежуточные чекпоинты Trainer.",
+    )
+    return p.parse_args()
+
+
 def main():
-    data_path = "data/prop_group_clusters_for_labeling.jsonl"
+    args = _parse_args()
+    data_path = args.data
+    base_model_name = args.base_model
+    output_dir = args.output
 
-    # базовая русская модель для классификации
-    base_model_name = "cointegrated/rubert-tiny2"
-
-    # куда сохраняем дообученную мини-LLM
-    output_dir = "models/prop_groups_llm"
+    if args.full:
+        num_epochs = args.epochs if args.epochs is not None else 120
+    else:
+        num_epochs = args.epochs if args.epochs is not None else 8
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -190,19 +235,24 @@ def main():
     # простое train/val-разбиение
     val_size = max(1, int(len(dataset) * 0.1))
     train_size = len(dataset) - val_size
-    train_ds, val_ds = random_split(dataset, [train_size, val_size])
+    gen = torch.Generator().manual_seed(int(args.seed))
+    train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=gen)
 
     LOG.info("Train size: %d, Val size: %d", train_size, val_size)
+    LOG.info("Эпох: %d (--full даёт 120 по умолчанию)", num_epochs)
 
     training_args = TrainingArguments(
-        output_dir="models/prop_groups_llm_checkpoints",
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        learning_rate=5e-5,
-        num_train_epochs=120,
-        logging_steps=20,
-        # без evaluation_strategy/save_strategy — для совместимости
+        output_dir=args.checkpoint_dir,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        learning_rate=args.lr,
+        num_train_epochs=num_epochs,
+        logging_steps=max(1, min(20, len(train_ds) // max(args.batch_size, 1))),
+        evaluation_strategy="epoch",
+        save_strategy="no",
+        report_to="none",
         fp16=torch.cuda.is_available(),
+        seed=int(args.seed),
     )
 
     trainer = Trainer(

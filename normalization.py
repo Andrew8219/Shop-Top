@@ -1,8 +1,10 @@
 # Включает: нормализацию, clustering, fallback, безопасный pipeline
 
 import logging
+import os
 import re
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any, Callable, Optional, Tuple, Dict, List
 
 from sqlalchemy import select, update, func
@@ -275,8 +277,116 @@ def build_property_name_groups(
     return out
 
 
-def build_property_name_groups_llm(session, model_dir):
-    raise RuntimeError("LLM not подключен")
+_CLS_TOKENIZER = None
+_CLS_MODEL = None
+_CLS_RESOLVED_DIR: Optional[str] = None
+
+
+def _resolve_prop_groups_model_dir(model_dir: str) -> Path:
+    p = Path(model_dir)
+    if not p.is_absolute():
+        base = Path(__file__).resolve().parent
+        p = (base / model_dir).resolve()
+    return p
+
+
+def _prop_groups_has_weights(d: Path) -> bool:
+    return (d / "model.safetensors").exists() or (d / "pytorch_model.bin").exists()
+
+
+def _id2label_str(model, class_id: int) -> str:
+    raw = getattr(model.config, "id2label", None) or {}
+    v = raw.get(class_id)
+    if v is None:
+        v = raw.get(str(class_id))
+    return str(v) if v is not None else str(int(class_id))
+
+
+def _load_prop_groups_classifier(model_dir: Path):
+    global _CLS_TOKENIZER, _CLS_MODEL, _CLS_RESOLVED_DIR
+    try:
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+    except ImportError as e:
+        raise RuntimeError(
+            "Нужны пакеты torch и transformers (см. requirements.txt)"
+        ) from e
+
+    key = str(model_dir.resolve())
+    if _CLS_RESOLVED_DIR == key and _CLS_MODEL is not None and _CLS_TOKENIZER is not None:
+        return _CLS_TOKENIZER, _CLS_MODEL
+
+    if not model_dir.is_dir():
+        raise RuntimeError(f"Каталог модели не найден: {model_dir}")
+
+    if not _prop_groups_has_weights(model_dir):
+        raise RuntimeError(
+            f"В {model_dir} нет весов классификатора (model.safetensors или pytorch_model.bin). "
+            "Обучите модель: python train_prop_groups_llm.py"
+        )
+
+    tok = AutoTokenizer.from_pretrained(str(model_dir))
+    model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    _CLS_TOKENIZER = tok
+    _CLS_MODEL = model
+    _CLS_RESOLVED_DIR = key
+    return tok, model
+
+
+def build_property_name_groups_llm(session: Session, model_dir: str) -> Dict[int, str]:
+    """
+    Классификация имён свойств в группы дообученной rubert-tiny2
+    (см. train_prop_groups_llm.py). Возвращает property_name_id -> название группы.
+    """
+    import torch
+
+    override = os.getenv("PROP_GROUPS_LLM_DIR", "").strip()
+    resolved = _resolve_prop_groups_model_dir(override or model_dir)
+    tokenizer, model = _load_prop_groups_classifier(resolved)
+    device = next(model.parameters()).device
+
+    rows = session.execute(select(PropertyName.property_name_id, PropertyName.name)).all()
+    if not rows:
+        return {}
+
+    batch_size = int(os.getenv("PROP_GROUPS_LLM_BATCH", "32"))
+    max_length = 64
+
+    pids: List[int] = []
+    texts: List[str] = []
+    for pid, name in rows:
+        pids.append(int(pid))
+        t = (name or "").strip()
+        texts.append(t if t else "?")
+
+    out: Dict[int, str] = {}
+    with torch.inference_mode():
+        for i in range(0, len(texts), batch_size):
+            chunk = texts[i : i + batch_size]
+            enc = tokenizer(
+                chunk,
+                truncation=True,
+                padding=True,
+                max_length=max_length,
+                return_tensors="pt",
+            )
+            enc = {k: v.to(device) for k, v in enc.items()}
+            logits = model(**enc).logits
+            pred = logits.argmax(dim=-1).tolist()
+            for j, class_id in enumerate(pred):
+                pid = pids[i + j]
+                out[pid] = _id2label_str(model, int(class_id))
+
+    LOG.info(
+        "Mini-LLM групп: модель %s, свойств: %d",
+        resolved,
+        len(out),
+    )
+    return out
 
 
 # =========================

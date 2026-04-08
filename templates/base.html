@@ -4,54 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block page_title %}{{ title or "MediaLux Shop" }}{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
 <a href="#main-content" class="skip-link">К основному содержимому</a>
 
 <header class="site-header">
     <div class="site-header__shell">
-        <div class="site-header__row site-header__row--top">
-            <a href="/" class="site-logo-full" aria-label="MediaLux Shop — на главную">MediaLux Shop</a>
-            <div class="site-header__profile">
-                {% if user %}
-                    <span class="site-header__profile-text">Профиль, {{ user.username }}</span>
-                {% else %}
-                    <span class="site-header__profile-text site-header__profile-text--muted">Гость</span>
-                {% endif %}
+        <div class="site-header__scroll">
+            <div class="site-header__row site-header__row--top">
+                <a href="/" class="site-logo-full" aria-label="MediaLux Shop — на главную">MediaLux Shop</a>
+                <div class="site-header__profile">
+                    {% if user %}
+                        <span class="site-header__profile-text">Профиль, {{ user.username }}</span>
+                    {% else %}
+                        <span class="site-header__profile-text site-header__profile-text--muted">Гость</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="site-header__row site-header__row--nav">
+                <nav class="site-header__nav" aria-label="Разделы магазина">
+                    <a href="/" class="nav-link{% if request.url.path == '/' and not request.query_params.get('q') %} nav-link--active{% endif %}">Каталог</a>
+                    <a href="/cart" class="nav-link nav-link--cart">Корзина{% if request.state.cart_count %} ({{ request.state.cart_count }}){% endif %}</a>
+                    <a href="/about" class="nav-link">О магазине</a>
+                    <a href="/about#contacts" class="nav-link">Контакты</a>
+                    {% if user and user.is_superuser %}
+                        <a href="/admin/analytics" class="nav-link nav-link--admin">Аналитика</a>
+                        <a href="/admin/normalization" class="nav-link nav-link--admin">Нормализация</a>
+                    {% endif %}
+                </nav>
             </div>
         </div>
 
-        <div class="site-header__row site-header__row--nav">
-            <nav class="site-header__nav" aria-label="Разделы магазина">
-                <a href="/" class="nav-link{% if request.url.path == '/' and not request.query_params.get('q') %} nav-link--active{% endif %}">Каталог</a>
-                <a href="/cart" class="nav-link nav-link--cart">Корзина{% if request.state.cart_count %} ({{ request.state.cart_count }}){% endif %}</a>
-                <a href="/about" class="nav-link">О магазине</a>
-                <a href="/about#contacts" class="nav-link">Контакты</a>
-                {% if user and user.is_superuser %}
-                    <a href="/admin/analytics" class="nav-link nav-link--admin">Аналитика</a>
-                    <a href="/admin/normalization" class="nav-link nav-link--admin">Нормализация</a>
-                {% endif %}
-            </nav>
-        </div>
-
         <div class="site-header__row site-header__row--search">
-            <div class="header-search-block">
+            <div class="header-search-block header-search-block--with-suggest">
                 <label for="header-q" class="header-search__label">Поиск по каталогу</label>
-                <form class="header-search" method="get" action="/search" role="search" data-nav-loading>
-                    <input
-                        id="header-q"
-                        class="header-search__input"
-                        type="search"
-                        name="q"
-                        value="{{ request.query_params.get('q', '') | e }}"
-                        placeholder="Поиск…"
-                        autocomplete="off"
-                        enterkeyhint="search"
-                        required
-                    >
-                    <button type="submit" class="btn btn--primary header-search__btn">Найти</button>
-                </form>
+                <div class="header-search-wrap">
+                    <form class="header-search" method="get" action="/search" role="search" data-nav-loading>
+                        <input
+                            id="header-q"
+                            class="header-search__input"
+                            type="search"
+                            name="q"
+                            value="{{ request.query_params.get('q', '') | e }}"
+                            placeholder="Поиск…"
+                            autocomplete="off"
+                            enterkeyhint="search"
+                            required
+                            aria-autocomplete="list"
+                            aria-controls="header-search-suggest"
+                            aria-expanded="false"
+                        >
+                        <button type="submit" class="btn btn--primary header-search__btn">Найти</button>
+                    </form>
+                    <ul id="header-search-suggest" class="header-search-suggest" role="listbox" hidden></ul>
+                </div>
             </div>
             <div class="site-header__search-actions">
                 {% if user %}
@@ -142,9 +150,76 @@
         });
     }
 
+    function initSearchSuggest() {
+        var input = document.getElementById('header-q');
+        var list = document.getElementById('header-search-suggest');
+        if (!input || !list) return;
+        var timer = null;
+        var debounceMs = 220;
+
+        function hideList() {
+            list.hidden = true;
+            list.innerHTML = '';
+            input.setAttribute('aria-expanded', 'false');
+        }
+
+        function showItems(items) {
+            list.innerHTML = '';
+            if (!items || !items.length) {
+                hideList();
+                return;
+            }
+            items.forEach(function (text, idx) {
+                var li = document.createElement('li');
+                li.className = 'header-search-suggest__item';
+                li.setAttribute('role', 'option');
+                li.setAttribute('id', 'search-suggest-opt-' + idx);
+                li.textContent = text;
+                li.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = text;
+                    hideList();
+                    input.focus();
+                });
+                list.appendChild(li);
+            });
+            list.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+        }
+
+        function fetchSuggest(q) {
+            if (!q || q.length < 2) {
+                hideList();
+                return;
+            }
+            fetch('/search/suggest?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var items = (data && data.suggestions) ? data.suggestions : [];
+                    showItems(items);
+                })
+                .catch(function () { hideList(); });
+        }
+
+        input.addEventListener('input', function () {
+            if (timer) clearTimeout(timer);
+            var v = String(input.value || '').trim();
+            timer = setTimeout(function () { fetchSuggest(v); }, debounceMs);
+        });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') hideList();
+        });
+
+        document.addEventListener('click', function (e) {
+            if (!list.contains(e.target) && e.target !== input) hideList();
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         initOverlay();
         initNavLoading();
+        initSearchSuggest();
     });
     window.addEventListener('pageshow', function () {
         document.body.classList.remove('is-nav-loading');

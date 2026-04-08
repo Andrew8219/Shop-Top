@@ -31,6 +31,8 @@
                 <span class="product-hero__dot">·</span>
                 <strong>Категория:</strong> {{ offer.category.name }}
             {% endif %}
+            <span class="product-hero__dot">·</span>
+            <strong>Цвет:</strong> {{ color_display or "—" }}
         </p>
         {% if key_attrs %}
             <ul class="product-hero__attrs">

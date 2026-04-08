@@ -8,10 +8,14 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
+import os
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models import AnalyticsDailyVisit, ShopOrder
+
+_COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "0").strip() == "1"
 
 LOG = logging.getLogger(__name__)
 
@@ -49,7 +53,7 @@ def record_daily_visit(request, response, db: Session) -> None:
         path="/",
         samesite="lax",
         httponly=False,
-        secure=False,
+        secure=_COOKIE_SECURE,
     )
 
 

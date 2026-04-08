@@ -129,6 +129,20 @@ class AnalyticsDailyVisit(Base):
     visits = Column(Integer, nullable=False, default=0)
 
 
+class SearchLog(Base):
+    """Поисковые запросы и клики по выдаче (метрики, A/B по режиму поиска)."""
+
+    __tablename__ = "search_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(Text, nullable=False)
+    clicked_offer_id = Column(BigInteger, nullable=True, index=True)
+    results_count = Column(Integer, nullable=False)
+    # hybrid | semantic | fulltext — для сравнения режимов по CTR
+    search_mode = Column(String(16), nullable=False, server_default="hybrid")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class SearchIndex(Base):
     __tablename__ = "search_index"
 

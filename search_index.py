@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from sqlalchemy import delete, func, select, text
@@ -14,9 +16,33 @@ from sqlalchemy.orm import Session, selectinload
 
 from models import ProductOffer, ProductProperty, SearchIndex
 
+LOG = logging.getLogger(__name__)
 
 DEFAULT_MODEL_NAME = "intfloat/multilingual-e5-small"
 DEFAULT_DIM = 384
+DEFAULT_CROSS_ENCODER_NAME = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+
+# Путь к дообученному bi-encoder (если задан — используется вместо дефолтного).
+# Установите в .env: SEARCH_BI_ENCODER_MODEL=models/bi_encoder_finetuned
+_BI_ENCODER_MODEL: str = os.getenv("SEARCH_BI_ENCODER_MODEL", "").strip() or DEFAULT_MODEL_NAME
+# Путь к cross-encoder (если задан — переопределяет дефолтный).
+# Установите в .env: SEARCH_CROSS_ENCODER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+_CROSS_ENCODER_MODEL: str = (
+    os.getenv("SEARCH_CROSS_ENCODER_MODEL", "").strip() or DEFAULT_CROSS_ENCODER_NAME
+)
+
+# Размер чанка при индексировании — чтобы не грузить все офферы в память сразу
+_INDEX_CHUNK_SIZE = int(os.getenv("SEARCH_INDEX_CHUNK_SIZE", "500"))
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _model_cache_dir() -> Optional[str]:
+    # Явный путь к кэшу моделей (если не задан — библиотека использует дефолтный HF cache).
+    p = os.getenv("HF_HOME", "").strip() or os.getenv("SENTENCE_TRANSFORMERS_HOME", "").strip()
+    return p or None
 
 
 @dataclass(frozen=True)
@@ -31,22 +57,68 @@ def _faiss_paths(root: Path) -> Tuple[Path, Path]:
 
 
 def _get_store_dir() -> Path:
-    # можно переопределить через env (удобно для деплоя)
     p = os.getenv("SEARCH_INDEX_DIR", "search_artifacts")
     return Path(p)
 
 
+# =====================
+#   FAISS IN-MEMORY CACHE
+# =====================
+
+_faiss_cache_lock = threading.Lock()
+_faiss_index = None   # faiss.Index | None
+_faiss_ids: Optional[List[int]] = None
+
+
+def _get_faiss_cached() -> Tuple[Optional[object], Optional[List[int]]]:
+    """Возвращает закешированный FAISS-индекс (читает с диска только при первом вызове)."""
+    global _faiss_index, _faiss_ids
+    with _faiss_cache_lock:
+        if _faiss_index is None:
+            _faiss_index, _faiss_ids = load_faiss()
+        return _faiss_index, _faiss_ids
+
+
+def invalidate_faiss_cache() -> None:
+    """Сбрасывает кэш FAISS. Вызывается после перестройки индекса."""
+    global _faiss_index, _faiss_ids
+    with _faiss_cache_lock:
+        _faiss_index = None
+        _faiss_ids = None
+    LOG.info("FAISS cache invalidated")
+
+
+# =====================
+#   pgvector helpers
+# =====================
+
 def ensure_pgvector_extension(session: Session) -> None:
-    # Безопасно, если расширение уже есть.
     session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     session.commit()
 
 
 def ensure_pgvector_column(session: Session, dim: int = DEFAULT_DIM) -> None:
-    # Создаём колонку под pgvector только если расширение реально доступно.
-    session.execute(text(f"ALTER TABLE search_index ADD COLUMN IF NOT EXISTS embedding_vec vector({dim})"))
+    session.execute(
+        text(f"ALTER TABLE search_index ADD COLUMN IF NOT EXISTS embedding_vec vector({dim})")
+    )
     session.commit()
 
+
+def ensure_gin_index(session: Session) -> None:
+    """Создаёт GIN-индекс на tsv если его нет — ускоряет полнотекстовый поиск в разы."""
+    session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS idx_search_index_tsv "
+            "ON search_index USING GIN(tsv)"
+        )
+    )
+    session.commit()
+    LOG.info("GIN index on search_index.tsv ensured")
+
+
+# =====================
+#   TEXT BUILDING
+# =====================
 
 def build_offer_text(offer: ProductOffer) -> str:
     parts: List[str] = []
@@ -64,7 +136,6 @@ def build_offer_text(offer: ProductOffer) -> str:
         except (TypeError, ValueError):
             pass
 
-    # свойства: "Название: значение"
     for prop in offer.properties or []:
         if prop.property_name and prop.property_name.name:
             pname = prop.property_name.name
@@ -79,16 +150,77 @@ def build_offer_text(offer: ProductOffer) -> str:
     return " | ".join([p.strip() for p in parts if p and p.strip()])
 
 
+# =====================
+#   EMBEDDINGS
+# =====================
+
 @lru_cache(maxsize=2)
 def _lazy_load_embedder(model_name: str = DEFAULT_MODEL_NAME):
     from sentence_transformers import SentenceTransformer
 
-    # E5 рекомендует normalize_embeddings=True и similarity via dot/inner product
-    return SentenceTransformer(model_name)
+    cache_dir = _model_cache_dir()
+    offline_only = (
+        _env_truthy("SEARCH_OFFLINE_ONLY")
+        or _env_truthy("HF_OFFLINE", "1")
+        or _env_truthy("HF_HUB_OFFLINE")
+        or _env_truthy("TRANSFORMERS_OFFLINE")
+    )
+    try:
+        return SentenceTransformer(
+            model_name,
+            cache_folder=cache_dir,
+            local_files_only=offline_only,
+        )
+    except Exception as e:
+        if offline_only:
+            raise RuntimeError(
+                f"Model '{model_name}' not found in local cache while offline mode is enabled. "
+                "Run once with internet to warm up the cache."
+            ) from e
+        LOG.warning("Model load failed online, retrying from local cache only: %s", e)
+        return SentenceTransformer(
+            model_name,
+            cache_folder=cache_dir,
+            local_files_only=True,
+        )
 
 
-def embed_passages(texts: Sequence[str], model_name: str = DEFAULT_MODEL_NAME) -> np.ndarray:
-    model = _lazy_load_embedder(model_name)
+@lru_cache(maxsize=1)
+def _lazy_load_cross_encoder(model_name: str = ""):
+    """
+    Лениво загружает cross-encoder модель. Возвращает None если модель недоступна
+    (не скачана и режим офлайн, или нет зависимостей).
+    """
+    effective_name = model_name or _CROSS_ENCODER_MODEL
+    offline_only = (
+        _env_truthy("SEARCH_OFFLINE_ONLY")
+        or _env_truthy("HF_OFFLINE", "1")
+        or _env_truthy("HF_HUB_OFFLINE")
+        or _env_truthy("TRANSFORMERS_OFFLINE")
+    )
+    try:
+        from sentence_transformers.cross_encoder import CrossEncoder
+
+        return CrossEncoder(
+            effective_name,
+            max_length=512,
+            device="cpu",
+            local_files_only=offline_only,
+        )
+    except Exception as e:
+        LOG.info(
+            "Cross-encoder '%s' не загружен (%s). "
+            "Запустите: python -c \"from sentence_transformers.cross_encoder import CrossEncoder; CrossEncoder('%s')\" "
+            "для скачивания модели. Будет использован bi-encoder fallback.",
+            effective_name,
+            e,
+            effective_name,
+        )
+        return None
+
+
+def embed_passages(texts: Sequence[str], model_name: str = "") -> np.ndarray:
+    model = _lazy_load_embedder(model_name or _BI_ENCODER_MODEL)
     passages = [f"passage: {t}" for t in texts]
     emb = model.encode(
         passages,
@@ -96,21 +228,23 @@ def embed_passages(texts: Sequence[str], model_name: str = DEFAULT_MODEL_NAME) -
         convert_to_numpy=True,
         show_progress_bar=len(texts) >= 200,
     )
-    emb = np.asarray(emb, dtype=np.float32)
-    return emb
+    return np.asarray(emb, dtype=np.float32)
 
 
-def embed_query(q: str, model_name: str = DEFAULT_MODEL_NAME) -> np.ndarray:
-    model = _lazy_load_embedder(model_name)
+def embed_query(q: str, model_name: str = "") -> np.ndarray:
+    model = _lazy_load_embedder(model_name or _BI_ENCODER_MODEL)
     emb = model.encode(
         [f"query: {q}"],
         normalize_embeddings=True,
         convert_to_numpy=True,
         show_progress_bar=False,
     )
-    emb = np.asarray(emb, dtype=np.float32)
-    return emb[0]
+    return np.asarray(emb, dtype=np.float32)[0]
 
+
+# =====================
+#   FAISS
+# =====================
 
 def build_faiss_index(embeddings: np.ndarray, offer_ids: Sequence[int]):
     import faiss
@@ -129,7 +263,9 @@ def save_faiss(index, offer_ids: Sequence[int], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     idx_path, map_path = _faiss_paths(out_dir)
     faiss.write_index(index, str(idx_path))
-    map_path.write_text(json.dumps(list(map(int, offer_ids)), ensure_ascii=False), encoding="utf-8")
+    map_path.write_text(
+        json.dumps(list(map(int, offer_ids)), ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def load_faiss(out_dir: Optional[Path] = None):
@@ -145,39 +281,30 @@ def load_faiss(out_dir: Optional[Path] = None):
 
 
 def semantic_search_faiss(q: str, top_k: int = 50) -> List[Tuple[int, int]]:
-    """
-    Возвращает список (offer_id, rank), rank начиная с 1.
-    """
-    index, offer_ids = load_faiss()
+    """Возвращает список (offer_id, rank). Индекс берётся из кэша в памяти."""
+    index, offer_ids = _get_faiss_cached()
     if index is None or not offer_ids:
         return []
-    qv = embed_query(q)
-    qv = np.asarray([qv], dtype=np.float32)
+    qv = np.asarray([embed_query(q)], dtype=np.float32)
     scores, idxs = index.search(qv, top_k)
-    idxs = idxs[0].tolist()
     result: List[Tuple[int, int]] = []
     rank = 1
-    for i in idxs:
+    for i in idxs[0].tolist():
         if i < 0:
             continue
-        oid = int(offer_ids[i])
-        result.append((oid, rank))
+        result.append((int(offer_ids[i]), rank))
         rank += 1
     return result
 
 
 def semantic_search_pgvector(session: Session, q: str, top_k: int = 50) -> List[Tuple[int, int]]:
-    """
-    Требует установленного pgvector extension и корректного типа в колонке embedding.
-    """
     qv = embed_query(q).tolist()
-    # Используем raw SQL, т.к. модель хранит embedding как TEXT (для совместимости без pgvector).
     rows = session.execute(
         text(
             "SELECT offer_id "
             "FROM search_index "
             "WHERE embedding_vec IS NOT NULL "
-            "ORDER BY (embedding_vec <=> :qv) ASC "
+            "ORDER BY (embedding_vec <#> :qv) ASC "
             "LIMIT :k"
         ),
         {"qv": qv, "k": int(top_k)},
@@ -198,6 +325,10 @@ def text_search(session: Session, q: str, top_k: int = 50) -> List[Tuple[int, in
     return [(int(oid), idx + 1) for idx, (oid,) in enumerate(rows)]
 
 
+# =====================
+#   RRF MERGE
+# =====================
+
 def rrf_merge(
     semantic: Sequence[Tuple[int, int]],
     text_ranks: Sequence[Tuple[int, int]],
@@ -214,52 +345,36 @@ def rrf_merge(
     return [oid for oid, _ in ordered[:limit]]
 
 
+def merge_search_rankings(
+    mode: str,
+    semantic: Sequence[Tuple[int, int]],
+    text_ranks: Sequence[Tuple[int, int]],
+    *,
+    k: int = 60,
+    limit: int = 500,
+) -> List[int]:
+    """
+    Объединяет семантический и полнотекстовый поиск в зависимости от режима.
+    mode: 'hybrid' | 'semantic' | 'fulltext'
+    """
+    if mode == "semantic":
+        return [oid for oid, _ in sorted(semantic, key=lambda x: x[1])[:limit]]
+    if mode == "fulltext":
+        return [oid for oid, _ in sorted(text_ranks, key=lambda x: x[1])[:limit]]
+    # hybrid (default): RRF
+    return rrf_merge(semantic, text_ranks, k=k, limit=limit)
+
+
+# =====================
+#   TOKEN FILTER
+# =====================
+
 _STOPWORDS_SEARCH = frozenset(
     {
-        "и",
-        "в",
-        "во",
-        "не",
-        "на",
-        "я",
-        "с",
-        "со",
-        "как",
-        "а",
-        "то",
-        "все",
-        "она",
-        "так",
-        "его",
-        "но",
-        "да",
-        "ты",
-        "к",
-        "у",
-        "же",
-        "вы",
-        "за",
-        "бы",
-        "по",
-        "из",
-        "от",
-        "до",
-        "при",
-        "мне",
-        "мы",
-        "он",
-        "the",
-        "a",
-        "an",
-        "and",
-        "or",
-        "for",
-        "to",
-        "of",
-        "in",
-        "on",
-        "is",
-        "it",
+        "и", "в", "во", "не", "на", "я", "с", "со", "как", "а", "то", "все",
+        "она", "так", "его", "но", "да", "ты", "к", "у", "же", "вы", "за",
+        "бы", "по", "из", "от", "до", "при", "мне", "мы", "он",
+        "the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "is", "it",
     }
 )
 
@@ -280,6 +395,14 @@ def tokenize_search_query(q: str) -> List[str]:
             continue
         out.append(p)
     return out
+
+
+def compact_query_for_retrieval(q: str) -> str:
+    """
+    Убирает стоп-слова и шумовые токены из запроса перед передачей в модель эмбеддингов.
+    Возвращает строку из значимых токенов через пробел.
+    """
+    return " ".join(tokenize_search_query(q))
 
 
 def _compact_alnum(s: str) -> str:
@@ -306,18 +429,34 @@ def token_matches_in_offer_text(token: str, hay_lower: str) -> bool:
     return False
 
 
+def _required_token_matches(n_tokens: int) -> int:
+    """
+    Сколько токенов должно совпасть:
+    - 1-3 токена: все (строгий AND)
+    - 4-5 токенов: n-1 (1 промах допускается)
+    - 6+ токенов: n-2 (2 промаха допускаются)
+    Это делает поиск более терпимым для длинных запросов.
+    """
+    if n_tokens <= 3:
+        return n_tokens
+    if n_tokens <= 5:
+        return n_tokens - 1
+    return n_tokens - 2
+
+
 def filter_offer_ids_by_query_tokens(
     session: Session,
     offer_ids: Sequence[int],
     q: str,
-) -> List[int]:
+) -> Tuple[List[int], Dict[int, ProductOffer]]:
     """
-    Оставляет только офферы, в тексте которых есть все токены запроса.
-    Сохраняет порядок из `offer_ids`. Без токенов — возвращает список как есть.
+    Оставляет только офферы, текст которых содержит достаточно токенов из запроса.
+    Возвращает (отфильтрованные id в исходном порядке, словарь offer_id → оффер).
+    Словарь можно передать в fetch_offers_in_order для повторного использования.
     """
     tokens = tokenize_search_query(q)
     if not tokens or not offer_ids:
-        return list(offer_ids)
+        return list(offer_ids), {}
 
     stmt = (
         select(ProductOffer)
@@ -329,100 +468,247 @@ def filter_offer_ids_by_query_tokens(
         .where(ProductOffer.offer_id.in_(list(map(int, offer_ids))))
     )
     offers = session.execute(stmt).scalars().all()
-    by_id = {int(o.offer_id): o for o in offers}
+    by_id: Dict[int, ProductOffer] = {int(o.offer_id): o for o in offers}
 
+    required = _required_token_matches(len(tokens))
     out: List[int] = []
     for oid in offer_ids:
         o = by_id.get(int(oid))
         if o is None:
             continue
         hay = build_offer_text(o).lower()
-        if all(token_matches_in_offer_text(t, hay) for t in tokens):
+        matched = sum(1 for t in tokens if token_matches_in_offer_text(t, hay))
+        if matched >= required:
             out.append(int(oid))
-    return out
+    return out, by_id
 
 
-def fetch_offers_in_order(session: Session, offer_ids: Sequence[int]) -> List[ProductOffer]:
+def fetch_offers_in_order(
+    session: Session,
+    offer_ids: Sequence[int],
+    cache: Optional[Dict[int, ProductOffer]] = None,
+) -> List[ProductOffer]:
+    """
+    Возвращает офферы в порядке offer_ids.
+    Если передан cache (от filter_offer_ids_by_query_tokens), подгружает только недостающие.
+    """
     if not offer_ids:
         return []
-    stmt = (
-        select(ProductOffer)
-        .options(
-            selectinload(ProductOffer.company),
-            selectinload(ProductOffer.category),
-            selectinload(ProductOffer.product),
-            selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
+
+    by_id: Dict[int, ProductOffer] = dict(cache) if cache else {}
+    missing = [oid for oid in offer_ids if oid not in by_id]
+
+    if missing:
+        stmt = (
+            select(ProductOffer)
+            .options(
+                selectinload(ProductOffer.company),
+                selectinload(ProductOffer.category),
+                selectinload(ProductOffer.product),
+                selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
+            )
+            .where(ProductOffer.offer_id.in_(list(map(int, missing))))
         )
-        .where(ProductOffer.offer_id.in_(list(map(int, offer_ids))))
-    )
-    offers = session.execute(stmt).scalars().all()
-    by_id = {int(o.offer_id): o for o in offers}
+        for o in session.execute(stmt).scalars().all():
+            by_id[int(o.offer_id)] = o
+
     return [by_id[oid] for oid in offer_ids if oid in by_id]
 
+
+def filter_offer_ids_by_query_tokens_soft(
+    session: Session,
+    offer_ids: Sequence[int],
+    q: str,
+) -> List[int]:
+    """
+    Обёртка над filter_offer_ids_by_query_tokens, возвращает только список ids.
+    Используется в поисковом пайплайне — cache не нужен на этом шаге.
+    """
+    filtered, _ = filter_offer_ids_by_query_tokens(session, offer_ids, q)
+    return filtered
+
+
+def rerank_offer_ids_cross_encoder(
+    session: Session,
+    q: str,
+    offer_ids: Sequence[int],
+    *,
+    head_size: int = 50,
+) -> List[int]:
+    """
+    Переставляет топ-head_size результатов по релевантности запросу.
+
+    Стратегия (в порядке приоритета):
+    1. Cross-encoder: joint scoring пары (запрос, текст_товара). Значительно точнее bi-encoder.
+       Требует модель 'cross-encoder/mmarco-mMiniLMv2-L12-H384-v1' в локальном кэше HF.
+    2. Bi-encoder fallback: dot product эмбеддинга запроса и хранимых эмбеддингов офферов.
+       Работает всегда если индекс построен.
+
+    Остальные результаты (tail) остаются в исходном порядке после переставленного топа.
+    """
+    if not offer_ids:
+        return []
+
+    head = list(offer_ids[:head_size])
+    tail = list(offer_ids[head_size:])
+
+    if not head:
+        return list(offer_ids)
+
+    # --- попытка 1: cross-encoder ---
+    ce = _lazy_load_cross_encoder()
+    if ce is not None:
+        try:
+            rows = session.execute(
+                select(SearchIndex.offer_id, SearchIndex.text)
+                .where(SearchIndex.offer_id.in_(head))
+                .where(SearchIndex.text.isnot(None))
+            ).all()
+            if rows:
+                oid_list = [int(r[0]) for r in rows]
+                pairs = [(q, r[1]) for r in rows]
+                scores_arr = ce.predict(pairs, show_progress_bar=False)
+                scored: Dict[int, float] = {oid: float(s) for oid, s in zip(oid_list, scores_arr)}
+                reranked = sorted(head, key=lambda oid: scored.get(oid, -999.0), reverse=True)
+                LOG.debug("rerank: cross-encoder scored %d pairs", len(pairs))
+                return reranked + tail
+        except Exception:
+            LOG.debug("rerank: cross-encoder scoring failed, falling back to bi-encoder", exc_info=True)
+
+    # --- попытка 2: bi-encoder (dot product из хранимых эмбеддингов) ---
+    try:
+        rows = session.execute(
+            select(SearchIndex.offer_id, SearchIndex.embedding)
+            .where(SearchIndex.offer_id.in_(head))
+            .where(SearchIndex.embedding.isnot(None))
+        ).all()
+    except Exception:
+        LOG.debug("rerank: не удалось загрузить эмбеддинги", exc_info=True)
+        return list(offer_ids)
+
+    if not rows:
+        return list(offer_ids)
+
+    try:
+        qv = embed_query(q)
+        bi_scored: Dict[int, float] = {}
+        for oid, emb_json in rows:
+            try:
+                emb = np.array(json.loads(emb_json), dtype=np.float32)
+                bi_scored[int(oid)] = float(np.dot(qv, emb))
+            except Exception:
+                pass
+        reranked = sorted(head, key=lambda oid: bi_scored.get(oid, -1.0), reverse=True)
+        return reranked + tail
+    except Exception:
+        LOG.debug("rerank: bi-encoder scoring failed", exc_info=True)
+        return list(offer_ids)
+
+
+# =====================
+#   BUILD INDEX
+# =====================
 
 def build_search_index(
     session: Session,
     *,
     model_name: str = DEFAULT_MODEL_NAME,
     rebuild: bool = True,
+    progress_cb: Optional[Callable[[str, int, int], None]] = None,
 ) -> Dict[str, int]:
     """
     Собирает search_index + FAISS артефакты.
+    Офферы обрабатываются чанками по _INDEX_CHUNK_SIZE — избегаем OOM на больших каталогах.
+
+    progress_cb(stage, current, total): stage — collect | embed | faiss (для UI джоба).
     """
     if rebuild:
         session.execute(delete(SearchIndex))
         session.commit()
 
-    # Подтягиваем всё нужное
-    stmt = (
-        select(ProductOffer)
-        .options(
-            selectinload(ProductOffer.company),
-            selectinload(ProductOffer.category),
-            selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
-        )
-        .order_by(ProductOffer.offer_id)
+    # Получаем все offer_id — легковесно
+    all_ids: List[int] = list(
+        session.execute(
+            select(ProductOffer.offer_id).order_by(ProductOffer.offer_id)
+        ).scalars().all()
     )
-    offers = session.execute(stmt).scalars().all()
-
-    texts: List[str] = []
-    offer_ids: List[int] = []
-    for o in offers:
-        txt = build_offer_text(o)
-        if not txt:
-            continue
-        texts.append(txt)
-        offer_ids.append(int(o.offer_id))
-
-    if not texts:
+    if progress_cb:
+        try:
+            progress_cb("collect", 1, 1)
+        except Exception:
+            LOG.debug("progress_cb(collect) failed", exc_info=True)
+    if not all_ids:
         return {"offers_indexed": 0}
 
-    # Full-text: сохраняем tsvector (через SQL function)
-    # Embeddings: считаем пакетно
-    embeddings = embed_passages(texts, model_name=model_name)
-
-    # Пытаемся включить pgvector extension (если нет прав — не упадём)
+    # Пытаемся включить pgvector (если нет прав — продолжаем без него)
     pgvector_ok = True
     try:
         ensure_pgvector_extension(session)
-        ensure_pgvector_column(session, dim=int(embeddings.shape[1]))
     except Exception:
         session.rollback()
         pgvector_ok = False
 
-    # Запись в search_index
-    for i, oid in enumerate(offer_ids):
-        row = SearchIndex(
-            offer_id=oid,
-            text=texts[i],
-            # to_tsvector лучше на стороне DB — сохраняем сразу выражением update ниже
-            tsv=None,
-            embedding=json.dumps(embeddings[i].tolist(), ensure_ascii=False),
-        )
-        session.add(row)
-    session.commit()
+    all_embeddings_list: List[np.ndarray] = []
+    all_indexed_ids: List[int] = []
 
-    # tsvector считаем внутри БД для сохранённых строк
+    total_chunks = (len(all_ids) + _INDEX_CHUNK_SIZE - 1) // _INDEX_CHUNK_SIZE
+    LOG.info("Индексирование %d офферов чанками по %d (%d чанков)", len(all_ids), _INDEX_CHUNK_SIZE, total_chunks)
+
+    for chunk_num, chunk_start in enumerate(range(0, len(all_ids), _INDEX_CHUNK_SIZE)):
+        if progress_cb:
+            try:
+                progress_cb("embed", chunk_num + 1, max(1, total_chunks))
+            except Exception:
+                LOG.debug("progress_cb(embed) failed", exc_info=True)
+        chunk_ids = all_ids[chunk_start: chunk_start + _INDEX_CHUNK_SIZE]
+
+        stmt = (
+            select(ProductOffer)
+            .options(
+                selectinload(ProductOffer.company),
+                selectinload(ProductOffer.category),
+                selectinload(ProductOffer.properties).selectinload(ProductProperty.property_name),
+            )
+            .where(ProductOffer.offer_id.in_(chunk_ids))
+            .order_by(ProductOffer.offer_id)
+        )
+        chunk_offers = session.execute(stmt).scalars().all()
+
+        chunk_texts: List[str] = []
+        chunk_ids_valid: List[int] = []
+        for o in chunk_offers:
+            txt = build_offer_text(o)
+            if txt:
+                chunk_texts.append(txt)
+                chunk_ids_valid.append(int(o.offer_id))
+
+        if not chunk_texts:
+            continue
+
+        LOG.info("Чанк %d/%d: %d офферов", chunk_num + 1, total_chunks, len(chunk_texts))
+        chunk_embeddings = embed_passages(chunk_texts, model_name=model_name)
+
+        # Записываем в search_index
+        for i, oid in enumerate(chunk_ids_valid):
+            row = SearchIndex(
+                offer_id=oid,
+                text=chunk_texts[i],
+                tsv=None,
+                embedding=json.dumps(chunk_embeddings[i].tolist(), ensure_ascii=False),
+            )
+            session.add(row)
+        session.commit()
+
+        all_embeddings_list.append(chunk_embeddings)
+        all_indexed_ids.extend(chunk_ids_valid)
+
+        # Освобождаем объекты офферов из памяти сессии
+        session.expunge_all()
+
+    if not all_indexed_ids:
+        return {"offers_indexed": 0}
+
+    # tsvector считаем внутри БД одним UPDATE
     session.execute(
         text(
             "UPDATE search_index "
@@ -432,21 +718,65 @@ def build_search_index(
     )
     session.commit()
 
-    # Если pgvector включён — заполняем embedding_vec
+    # GIN-индекс — создаём/обновляем после заполнения данных
+    try:
+        ensure_gin_index(session)
+    except Exception:
+        LOG.warning("Не удалось создать GIN-индекс (возможно, нет прав)", exc_info=True)
+        session.rollback()
+
+    # Собираем все эмбеддинги для FAISS
+    all_embeddings = np.vstack(all_embeddings_list)
+
+    if progress_cb:
+        try:
+            progress_cb("faiss", 0, 1)
+        except Exception:
+            LOG.debug("progress_cb(faiss) failed", exc_info=True)
+
+    # pgvector: batch-update вместо цикла по одной строке
     if pgvector_ok:
-        for i, oid in enumerate(offer_ids):
+        try:
+            ensure_pgvector_column(session, dim=int(all_embeddings.shape[1]))
+            batch_params = [
+                {"v": all_embeddings[i].tolist(), "oid": int(all_indexed_ids[i])}
+                for i in range(len(all_indexed_ids))
+            ]
             session.execute(
                 text("UPDATE search_index SET embedding_vec = :v WHERE offer_id = :oid"),
-                {"v": embeddings[i].tolist(), "oid": int(oid)},
+                batch_params,
             )
-        session.commit()
+            session.commit()
+        except Exception:
+            LOG.warning("pgvector batch update не удался", exc_info=True)
+            session.rollback()
+            pgvector_ok = False
 
-    # FAISS артефакты
-    faiss_index, faiss_offer_ids = build_faiss_index(embeddings, offer_ids)
+    # Строим и сохраняем FAISS-индекс
+    faiss_index, faiss_offer_ids = build_faiss_index(all_embeddings, all_indexed_ids)
     save_faiss(faiss_index, faiss_offer_ids, _get_store_dir())
 
+    if progress_cb:
+        try:
+            progress_cb("faiss", 1, 1)
+        except Exception:
+            LOG.debug("progress_cb(faiss done) failed", exc_info=True)
+
+    # Сбрасываем in-memory кэш — при следующем поиске загрузится новый индекс
+    invalidate_faiss_cache()
+
+    LOG.info("Индексирование завершено: %d офферов", len(all_indexed_ids))
     return {
-        "offers_indexed": len(offer_ids),
+        "offers_indexed": len(all_indexed_ids),
         "pgvector_ok": 1 if pgvector_ok else 0,
     }
 
+
+def parse_query_intent(q: str):
+    """
+    Разбор намерения запроса (цена, RAM, SSD, диагональ и т.д.) для поиска.
+    Реализация в search_smart; экспорт здесь — рядом с токенизацией/индексом.
+    """
+    from search_smart import parse_query_intent as _parse_query_intent_impl
+
+    return _parse_query_intent_impl(q)
