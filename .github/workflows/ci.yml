@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: shop
+          POSTGRES_PASSWORD: shop
+          POSTGRES_DB: medialux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shop -d medialux"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://shop:shop@localhost:5432/medialux
+      SECRET_KEY: ci-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Unit tests
+        run: python -m pytest -q tests
+
+      - name: Smoke test (demo data + HTTP)
+        run: |
+          python -m scripts.generate_fake_data 200
+          uvicorn main:app --port 8000 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/ >/dev/null && break; sleep 1; done
+          for path in / /about /cart /login "/search?q=ноутбук" /product/1; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -G "http://127.0.0.1:8000${path%%\?*}" \
+              $( [[ "$path" == *\?* ]] && echo --data-urlencode "${path#*\?}" ))
+            echo "$path -> $code"
+            test "$code" = "200"
+          done

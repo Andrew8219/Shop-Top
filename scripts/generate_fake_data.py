@@ -2,8 +2,8 @@
 generate_fake_data.py — генерация тестовых товаров для ВКР (добавление в БД, не удаляет существующие).
 
 Запуск:
-    python generate_fake_data.py           # по умолчанию 1000 новых офферов
-    python generate_fake_data.py 9000      # добавить 9000 офферов (к уже имеющимся)
+    python -m scripts.generate_fake_data           # по умолчанию 1000 новых офферов
+    python -m scripts.generate_fake_data 9000      # добавить 9000 офферов (к уже имеющимся)
 
 Генерирует реалистичные товары по 12 категориям с разнообразными
 характеристиками — достаточно для тестирования семантического поиска.
@@ -11,6 +11,7 @@ generate_fake_data.py — генерация тестовых товаров д�
 """
 
 import random
+import re
 import sys
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -413,6 +414,64 @@ def get_next_id(session: Session, model, id_field):
 #   ГЕНЕРАТОР ТОВАРОВ
 # =============================================================================
 
+# Реалистичные ценовые диапазоны (₽) по категориям
+PRICE_RANGES = {
+    "Ноутбуки": (35_000, 250_000),
+    "Смартфоны": (12_000, 160_000),
+    "Телевизоры": (25_000, 300_000),
+    "Мониторы": (12_000, 120_000),
+    "Компьютеры": (40_000, 350_000),
+    "Наушники": (2_500, 60_000),
+    "Холодильники": (30_000, 250_000),
+    "Стиральные машины": (25_000, 150_000),
+    "Фотоаппараты": (45_000, 600_000),
+    "Планшеты": (12_000, 180_000),
+    "Умные часы": (5_000, 90_000),
+    "Пылесосы": (8_000, 90_000),
+}
+
+_APPLE_RE = re.compile(r"\bApple\b|macOS|iPadOS")
+
+
+def make_consistent_properties(cat_data: dict, company_name: str) -> dict:
+    """
+    Генерирует характеристики, согласованные с брендом:
+    у Apple — Apple Silicon / macOS / iOS, у остальных — без «яблочных» значений.
+    """
+    cat_name = cat_data["category"]
+    props = cat_data["properties"]()
+    for _ in range(200):
+        has_apple = any(
+            _APPLE_RE.search(str(props.get(k, ""))) for k in ("Процессор", "Видеокарта", "ОС")
+        )
+        if has_apple == (company_name == "Apple") or company_name == "Apple":
+            break
+        props = cat_data["properties"]()
+
+    if company_name == "Apple":
+        if cat_name == "Ноутбуки":
+            props["Процессор"] = random.choice(["Apple M1", "Apple M2", "Apple M2 Pro"])
+            props["Видеокарта"] = "Встроенная (Apple Silicon)"
+            props["ОС"] = "macOS"
+        elif cat_name == "Компьютеры":
+            props["Процессор"] = random.choice(["Apple M2 Max", "Apple M2 Ultra"])
+            props["Видеокарта"] = "Встроенная (Apple Silicon)"
+            props["ОС"] = "macOS"
+        elif cat_name == "Смартфоны":
+            props["Процессор"] = "Apple A16 Bionic"
+        elif cat_name == "Планшеты":
+            props["ОС"] = "iPadOS 17"
+        elif cat_name == "Умные часы":
+            props["Совместимость"] = "iOS"
+    elif cat_name == "Планшеты" and props.get("ОС") == "iPadOS 17":
+        props["ОС"] = "Android 13"
+
+    # У ноутбуков ёмкость батареи указывается в Вт·ч
+    if cat_name == "Ноутбуки" and "Аккумулятор" in props:
+        props["Аккумулятор"] = str(props["Аккумулятор"]).replace("мАч", "Вт·ч")
+    return props
+
+
 def generate_products(session: Session, total: int = 1000) -> int:
     per_category = total // len(ALL_CATEGORIES)
     extra = total - per_category * len(ALL_CATEGORIES)
@@ -434,14 +493,20 @@ def generate_products(session: Session, total: int = 1000) -> int:
         session.flush()
 
         for i in range(count):
-            company_name = random.choice(companies)
-            tmpl_name, short_base = random.choice(templates)
+            # Шаблон модели и бренд идут парами (MacBook — Apple, ThinkPad — Lenovo, …)
+            idx = random.randrange(len(templates))
+            tmpl_name, short_base = templates[idx]
+            company_name = companies[idx % len(companies)]
 
             # Генерируем уникальный номер/год для шаблона
             num = random.randint(10, 99)
             year = random.randint(2021, 2024)
             full_name = tmpl_name.format(num=num, year=year)
-            short_name = f"{short_base} {num}"
+            short_name = (
+                full_name
+                if company_name.casefold() in full_name.casefold()
+                else f"{company_name} {full_name}"
+            )
 
             company = get_or_create(session, Company, name=company_name)
             session.flush()
@@ -454,7 +519,8 @@ def generate_products(session: Session, total: int = 1000) -> int:
 
             # ProductOffer
             offer_id = get_next_id(session, ProductOffer, "offer_id")
-            price_rub = float(random.randint(500, 99_999))
+            lo, hi = PRICE_RANGES.get(cat_name, (1_000, 100_000))
+            price_rub = float(round(random.randint(lo, hi), -2) - 10)
 
             offer = ProductOffer(
                 offer_id=offer_id,
@@ -468,7 +534,7 @@ def generate_products(session: Session, total: int = 1000) -> int:
             session.flush()
 
             # Properties
-            props = cat_data["properties"]()
+            props = make_consistent_properties(cat_data, company_name)
             for prop_name_str, prop_value in props.items():
                 prop_name = get_or_create(session, PropertyName, name=prop_name_str)
                 session.flush()

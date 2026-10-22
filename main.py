@@ -185,8 +185,12 @@ def _is_rate_limited(ip: str) -> bool:
         return False
 
 
+_TRUST_PROXY: bool = os.getenv("TRUST_PROXY", "0").strip() == "1"
+
+
 def _client_ip(request: Request) -> str:
-    xff = request.headers.get("X-Forwarded-For")
+    # X-Forwarded-For легко подделать, поэтому доверяем ему только за reverse-proxy.
+    xff = request.headers.get("X-Forwarded-For") if _TRUST_PROXY else None
     if xff:
         return xff.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
@@ -196,13 +200,16 @@ def _client_ip(request: Request) -> str:
 #   JWT / ПАРОЛИ
 # =====================
 
-_SECRET_KEY_DEFAULT = "CHANGE_ME_TO_LONG_RANDOM_SECRET"
-SECRET_KEY: str = os.getenv("SECRET_KEY", _SECRET_KEY_DEFAULT)
-if SECRET_KEY == _SECRET_KEY_DEFAULT:
-    LOG.critical(
-        "⚠️  SECRET_KEY использует небезопасное значение по умолчанию! "
-        "Сгенерируйте ключ: python -c \"import secrets; print(secrets.token_hex(32))\" "
-        "и задайте SECRET_KEY в .env файле."
+SECRET_KEY: str = os.getenv("SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    # Без заданного ключа генерируем случайный: приложение работает,
+    # но сессии и корзина сбрасываются при каждом перезапуске.
+    import secrets
+
+    SECRET_KEY = secrets.token_hex(32)
+    LOG.warning(
+        "SECRET_KEY не задан — сгенерирован временный ключ. "
+        "Задайте SECRET_KEY в .env: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
 
 ALGORITHM = "HS256"
@@ -1634,7 +1641,12 @@ async def search_page(
     if ssd_facet_gb is None and parsed_intent.ssd_gb is not None:
         ssd_facet_gb = parsed_intent.ssd_gb
 
-    semantic_ranks = semantic_search_faiss(search_q_retrieval, top_k=200)
+    # Семантический поиск опционален: без модели/индекса работаем только на полнотексте.
+    try:
+        semantic_ranks = semantic_search_faiss(search_q_retrieval, top_k=200)
+    except Exception as exc:
+        LOG.warning("Семантический поиск недоступен (%s), используется только FTS", exc)
+        semantic_ranks = []
     if not semantic_ranks:
         try:
             semantic_ranks = semantic_search_pgvector(db, search_q_retrieval, top_k=200)

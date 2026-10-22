@@ -120,6 +120,14 @@ class TfidfEmbedder:
         return self.vec.transform(texts).toarray().astype("float32")
 
 
+_NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numeric_signature(value: str) -> Tuple[str, ...]:
+    """Отсортированный набор чисел в строке — значения с разными числами не объединяем."""
+    return tuple(sorted(n.replace(",", ".") for n in _NUM_RE.findall(str(value))))
+
+
 def cluster_values(values, counts, embedder, threshold=0.35):
     if len(values) <= 1:
         return {v: v for v in values}
@@ -135,9 +143,12 @@ def cluster_values(values, counts, embedder, threshold=0.35):
 
     labels = clustering.fit_predict(X)
 
+    # Внутри текстового кластера разделяем значения с разными числами:
+    # «RTX 4070» и «RTX 3060», «1 ТБ» и «2 ТБ» похожи как строки, но это разные значения.
+    # «Full HD 1920×1080» и «1920x1080» имеют одинаковую числовую сигнатуру и сливаются.
     groups = defaultdict(list)
-    for value, label in zip(values, labels):  # <-- исправлено
-        groups[label].append(value)
+    for value, label in zip(values, labels):
+        groups[(label, _numeric_signature(value))].append(value)
 
     result = {}
     for vals in groups.values():
@@ -322,7 +333,7 @@ def _load_prop_groups_classifier(model_dir: Path):
     if not _prop_groups_has_weights(model_dir):
         raise RuntimeError(
             f"В {model_dir} нет весов классификатора (model.safetensors или pytorch_model.bin). "
-            "Обучите модель: python train_prop_groups_llm.py"
+            "Обучите модель: python -m scripts.train_prop_groups_llm"
         )
 
     tok = AutoTokenizer.from_pretrained(str(model_dir))
@@ -340,7 +351,7 @@ def _load_prop_groups_classifier(model_dir: Path):
 def build_property_name_groups_llm(session: Session, model_dir: str) -> Dict[int, str]:
     """
     Классификация имён свойств в группы дообученной rubert-tiny2
-    (см. train_prop_groups_llm.py). Возвращает property_name_id -> название группы.
+    (см. scripts/train_prop_groups_llm.py). Возвращает property_name_id -> название группы.
     """
     import torch
 

@@ -1,0 +1,14 @@
+.git
+.env
+.venv
+venv
+__pycache__
+*.pyc
+.idea
+.vscode
+.hf_cache
+models
+search_artifacts
+docs
+*.docx
+*.pptx

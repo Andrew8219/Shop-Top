@@ -1,0 +1,7 @@
+# Семантический поиск (эмбеддинги E5, cross-encoder) и обучение моделей.
+# Устанавливается дополнительно к requirements.txt:
+#   pip install -r requirements.txt -r requirements-ml.txt
+torch>=2.6.0
+transformers>=4.46.0,<5
+sentence-transformers>=3.0.0
+tqdm>=4.66.1

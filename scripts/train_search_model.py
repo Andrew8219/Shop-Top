@@ -17,7 +17,7 @@
   SEARCH_BI_ENCODER_MODEL=models/bi_encoder_finetuned
 
 Запуск:
-  python train_search_model.py [--epochs 3] [--batch 16] [--limit-offers 5000]
+  python -m scripts.train_search_model [--epochs 3] [--batch 16] [--limit-offers 5000]
 
 Требования: torch, sentence-transformers >= 3.0, rank-bm25 (pip install rank-bm25)
 """

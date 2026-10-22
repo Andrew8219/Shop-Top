@@ -37,9 +37,9 @@
 ## 5. Воспроизведение
 
 ```bash
-python evaluate_vkr.py
-python evaluate_vkr.py --dry-run      # без записи category-aware нормализации в БД (Task 3)
-python evaluate_vkr.py --task7-only   # только оценка поиска, без Task 2/3
+python -m scripts.evaluate_vkr
+python -m scripts.evaluate_vkr --dry-run      # без записи category-aware нормализации в БД (Task 3)
+python -m scripts.evaluate_vkr --task7-only   # только оценка поиска, без Task 2/3
 ```
 
 Артефакты: `evaluation/reports/vkr_metrics.json`, `vkr_metrics.md` (и варианты `*_dry_run.*`).

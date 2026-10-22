@@ -312,7 +312,7 @@ def semantic_search_pgvector(session: Session, q: str, top_k: int = 50) -> List[
     return [(int(oid), idx + 1) for idx, (oid,) in enumerate(rows)]
 
 
-def text_search(session: Session, q: str, top_k: int = 50) -> List[Tuple[int, int]]:
+def _fts_query(session: Session, q: str, top_k: int) -> List[int]:
     tsq = func.websearch_to_tsquery("russian", q)
     rank = func.ts_rank_cd(SearchIndex.tsv, tsq)
     stmt = (
@@ -321,8 +321,21 @@ def text_search(session: Session, q: str, top_k: int = 50) -> List[Tuple[int, in
         .order_by(rank.desc())
         .limit(top_k)
     )
-    rows = session.execute(stmt).all()
-    return [(int(oid), idx + 1) for idx, (oid,) in enumerate(rows)]
+    return [int(oid) for (oid,) in session.execute(stmt).all()]
+
+
+def text_search(session: Session, q: str, top_k: int = 50) -> List[Tuple[int, int]]:
+    """
+    Полнотекстовый поиск PostgreSQL. Сначала строгий AND по всем словам;
+    если ничего не нашлось (например, запрос расширен синонимами, которых нет
+    в карточке) — OR по словам с ранжированием по числу совпадений (ts_rank_cd).
+    """
+    ids = _fts_query(session, q, top_k)
+    if not ids:
+        words = re.findall(r"\w+", q or "", flags=re.UNICODE)
+        if len(words) > 1:
+            ids = _fts_query(session, " or ".join(words), top_k)
+    return [(oid, idx + 1) for idx, oid in enumerate(ids)]
 
 
 # =====================
@@ -379,15 +392,27 @@ _STOPWORDS_SEARCH = frozenset(
 )
 
 
+@lru_cache(maxsize=1)
+def _retrieval_fluff() -> frozenset:
+    """Разговорные/субъективные слова из словаря намерений (их нет в карточках)."""
+    try:
+        from search_intent_lexicon import INTENT_RETRIEVAL_FLUFF
+
+        return frozenset(INTENT_RETRIEVAL_FLUFF)
+    except Exception:
+        return frozenset()
+
+
 def tokenize_search_query(q: str) -> List[str]:
     """Слова и числа из запроса (нижний регистр), без короткого мусора и стоп-слов."""
     q = (q or "").strip().lower()
     if not q:
         return []
     parts = re.findall(r"\w+", q, flags=re.UNICODE)
+    fluff = _retrieval_fluff()
     out: List[str] = []
     for p in parts:
-        if p in _STOPWORDS_SEARCH:
+        if p in _STOPWORDS_SEARCH or p in fluff:
             continue
         if len(p) < 2 and not p.isdigit():
             continue
@@ -422,6 +447,12 @@ def token_matches_in_offer_text(token: str, hay_lower: str) -> bool:
         )
     if token in hay_lower:
         return True
+    # Русская словоформа: «камерой» ≈ «камера» (совпадение по основе без окончания).
+    if len(token) >= 6 and re.fullmatch(r"[а-яё]+", token):
+        for cut in (1, 2, 3):
+            stem = token[:-cut]
+            if len(stem) >= 4 and stem in hay_lower:
+                return True
     if len(token) >= 2:
         ct = _compact_alnum(token)
         if ct and ct in _compact_alnum(hay_lower):
@@ -648,6 +679,15 @@ def build_search_index(
         session.rollback()
         pgvector_ok = False
 
+    # Если модель эмбеддингов недоступна (нет sentence-transformers / весов),
+    # строим только полнотекстовый индекс — витрина и FTS-поиск продолжают работать.
+    semantic_ok = True
+    try:
+        _lazy_load_embedder(model_name or _BI_ENCODER_MODEL)
+    except Exception as exc:
+        LOG.warning("Модель эмбеддингов недоступна (%s): строится только полнотекстовый индекс", exc)
+        semantic_ok = False
+
     all_embeddings_list: List[np.ndarray] = []
     all_indexed_ids: List[int] = []
 
@@ -686,7 +726,9 @@ def build_search_index(
             continue
 
         LOG.info("Чанк %d/%d: %d офферов", chunk_num + 1, total_chunks, len(chunk_texts))
-        chunk_embeddings = embed_passages(chunk_texts, model_name=model_name)
+        chunk_embeddings = (
+            embed_passages(chunk_texts, model_name=model_name) if semantic_ok else None
+        )
 
         # Записываем в search_index
         for i, oid in enumerate(chunk_ids_valid):
@@ -694,12 +736,17 @@ def build_search_index(
                 offer_id=oid,
                 text=chunk_texts[i],
                 tsv=None,
-                embedding=json.dumps(chunk_embeddings[i].tolist(), ensure_ascii=False),
+                embedding=(
+                    json.dumps(chunk_embeddings[i].tolist(), ensure_ascii=False)
+                    if chunk_embeddings is not None
+                    else None
+                ),
             )
             session.add(row)
         session.commit()
 
-        all_embeddings_list.append(chunk_embeddings)
+        if chunk_embeddings is not None:
+            all_embeddings_list.append(chunk_embeddings)
         all_indexed_ids.extend(chunk_ids_valid)
 
         # Освобождаем объекты офферов из памяти сессии
@@ -724,6 +771,11 @@ def build_search_index(
     except Exception:
         LOG.warning("Не удалось создать GIN-индекс (возможно, нет прав)", exc_info=True)
         session.rollback()
+
+    if not semantic_ok:
+        invalidate_faiss_cache()
+        LOG.info("Индексирование завершено (только FTS): %d офферов", len(all_indexed_ids))
+        return {"offers_indexed": len(all_indexed_ids), "pgvector_ok": 0, "semantic": 0}
 
     # Собираем все эмбеддинги для FAISS
     all_embeddings = np.vstack(all_embeddings_list)

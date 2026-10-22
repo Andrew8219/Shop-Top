@@ -377,7 +377,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parent.parent
     dataset = root / "evaluation" / "task5_queries.json"
     reports_dir = root / "evaluation" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)

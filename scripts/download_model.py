@@ -3,7 +3,7 @@
 Скачивает модель эмбеддингов для семантического поиска.
 
 По умолчанию — Qwen3-Embedding через Ollama (без PyTorch).
-Для legacy HuggingFace/e5: python download_model.py --provider local
+Для legacy HuggingFace/e5: python -m scripts.download_model --provider local
 
 Использование:
     python3 download_model.py

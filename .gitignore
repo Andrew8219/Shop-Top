@@ -7,10 +7,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
 
-# ML caches / large model weights
+# ML caches, model weights, generated search index
 .hf_cache/
 models/
+search_artifacts/
 
 # IDE / OS
 .idea/
@@ -19,7 +21,9 @@ models/
 .claude/
 .claude_tmp/
 
-# Office documents (thesis, slides)
+# Office documents (thesis, slides) and DB dumps
 *.pptx
 *.docx
 ppt_assets/
+*.sql.gz
+*-dump.sql
