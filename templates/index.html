@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block page_title %}{% if q %}Поиск: {{ q }} — {% endif %}Каталог — MediaLux Shop{% endblock %}
+{% block page_title %}{% if q %}Поиск: {{ q }} — {% endif %}Каталог — Shop-Top{% endblock %}
 
 {% macro listing_href(page_num) -%}
 {% if is_search %}/search{% else %}/{% endif %}?{% if listing_qs_no_page %}{{ listing_qs_no_page }}&amp;{% endif %}page={{ page_num }}

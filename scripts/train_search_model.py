@@ -455,7 +455,7 @@ def export_cross_encoder_data(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fine-tune bi-encoder для поиска по каталогу MediaLux"
+        description="Fine-tune bi-encoder для поиска по каталогу Shop-Top"
     )
     parser.add_argument(
         "--mode",

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block page_title %}{{ title or "MediaLux Shop" }}{% endblock %}</title>
+    <title>{% block page_title %}{{ title or "Shop-Top" }}{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
@@ -13,7 +13,7 @@
     <div class="site-header__shell">
         <div class="site-header__scroll">
             <div class="site-header__row site-header__row--top">
-                <a href="/" class="site-logo-full" aria-label="MediaLux Shop — на главную">MediaLux Shop</a>
+                <a href="/" class="site-logo-full" aria-label="Shop-Top — на главную">Shop-Top</a>
                 <div class="site-header__profile">
                     {% if user %}
                         <span class="site-header__profile-text">Профиль, {{ user.username }}</span>
@@ -95,7 +95,7 @@
 <footer class="site-footer">
     <div class="site-footer__inner">
         <div class="site-footer__col">
-            <strong>MediaLux Shop</strong>
+            <strong>Shop-Top</strong>
             <p class="site-footer__muted">Демонстрационный каталог для ВКР.</p>
         </div>
         <div class="site-footer__col">
@@ -112,7 +112,7 @@
         </div>
     </div>
     <div class="site-footer__bottom">
-        <span>© 2026 MediaLux Shop</span>
+        <span>© 2026 Shop-Top</span>
     </div>
 </footer>
 

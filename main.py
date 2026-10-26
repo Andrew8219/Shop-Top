@@ -340,7 +340,7 @@ def _try_ensure_gin_index() -> None:
 
 _try_ensure_gin_index()
 
-app = FastAPI(title="MediaLux Shop")
+app = FastAPI(title="Shop-Top")
 
 
 @app.middleware("http")
