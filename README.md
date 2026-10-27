@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-horizontal-dark.svg">
+    <img src="docs/logo/logo-horizontal-light.svg" alt="Shop-Top" width="420">
+  </picture>
+</p>
+
 # Shop-Top — интернет-магазин электроники с интеллектуальным поиском
 
 [![CI](https://github.com/Andrew8219/Shop-Top/actions/workflows/ci.yml/badge.svg)](https://github.com/Andrew8219/Shop-Top/actions/workflows/ci.yml)

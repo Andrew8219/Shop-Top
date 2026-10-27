@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block page_title %}{{ title or "Shop-Top" }}{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css?v=8">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/static/favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
 <a href="#main-content" class="skip-link">К основному содержимому</a>
@@ -13,7 +16,7 @@
     <div class="site-header__shell">
         <div class="site-header__scroll">
             <div class="site-header__row site-header__row--top">
-                <a href="/" class="site-logo-full" aria-label="Shop-Top — на главную">Shop-Top</a>
+                <a href="/" class="site-logo-full" aria-label="Shop-Top — на главную"><img src="/static/logo-icon.svg" alt="" class="site-logo-icon" width="40" height="33">Shop-Top</a>
                 <div class="site-header__profile">
                     {% if user %}
                         <span class="site-header__profile-text">Профиль, {{ user.username }}</span>

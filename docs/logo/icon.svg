@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 460" ><defs>
+    <linearGradient id="bar" x1="460" y1="0" x2="810" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1668FF"/><stop offset="1" stop-color="#5BC0FF"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="540" y1="380" x2="740" y2="270" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A7BFF"/><stop offset="1" stop-color="#4DA8FF"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="380" x2="0" y2="690" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1A5CF0"/><stop offset="1" stop-color="#0A36B0"/>
+    </linearGradient>
+  </defs><g transform="translate(0,0) scale(1.0) translate(-330,-250)">
+  
+  <path d="M 553 380 A 92 92 0 0 1 727 354" fill="none" stroke="url(#handle)" stroke-width="38"/>
+  <path d="M 772 430 L 800 378 L 856 615 Q 866 666 815 670 L 610 683 L 690 655 Q 722 642 732 600 Z" fill="url(#panel)"/>
+  <g stroke="#1668FF" stroke-width="30" stroke-linecap="round">
+    <path d="M 404 548 L 520 536"/>
+    <path d="M 450 597 L 510 590"/>
+  </g>
+  
+  <path fill="url(#bar)" d="
+    M 478 402 L 788 361 Q 810 358 804 381 L 797 407
+    L 664 424
+    L 612 684 L 515 688
+    L 578 486
+    L 378 512 Q 356 514 356 496 Q 357 481 374 478
+    Q 450 466 478 452 Q 456 452 459 435 L 464 416 Q 467 404 478 402 Z"/>
+
+</g></svg>

@@ -118,11 +118,20 @@ body.is-nav-loading {
 }
 
 .site-logo-full {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
     font-weight: 800;
     font-size: 1.25rem;
     letter-spacing: -0.02em;
     color: #60a5fa;
     text-decoration: none;
+}
+
+.site-logo-icon {
+    display: block;
+    width: 40px;
+    height: auto;
 }
 
 .site-logo-full:hover {
